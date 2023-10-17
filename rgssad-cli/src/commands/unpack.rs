@@ -2,6 +2,8 @@ use anyhow::bail;
 use anyhow::ensure;
 use anyhow::Context;
 use std::fs::File;
+use std::io::Read;
+use std::io::Write;
 use std::path::Component as PathComponent;
 use std::path::Path;
 use std::path::PathBuf;
@@ -38,7 +40,7 @@ pub fn exec(options: Options) -> anyhow::Result<()> {
     let output = std::fs::canonicalize(&options.output)?;
 
     let mut last_error = Ok(());
-    while let Some(entry) = reader.read_entry()? {
+    while let Some(mut entry) = reader.read_entry()? {
         println!("Extracting \"{}\"", entry.file_name());
 
         // Sanitize and build path
@@ -46,11 +48,26 @@ pub fn exec(options: Options) -> anyhow::Result<()> {
             Ok(out_path) => out_path,
             Err(error) => {
                 eprintln!("  {error}, skipping");
-                last_error =
-                    Err(error).with_context(|| format!("failed to extract {}", entry.file_name()));
+                last_error = Err(error)
+                    .with_context(|| format!("failed to sanitize \"{}\"", entry.file_name()));
                 continue;
             }
         };
+
+        match extract_file(&mut entry, &out_path) {
+            Ok(()) => {}
+            Err(error) => {
+                eprintln!("  {error}, skipping");
+                last_error = Err(error).with_context(|| {
+                    format!(
+                        "failed to extract \"{}\" to \"{}\"",
+                        entry.file_name(),
+                        out_path.display()
+                    )
+                });
+                continue;
+            }
+        }
     }
 
     last_error
@@ -91,4 +108,23 @@ fn construct_out_path(out_dir: &Path, file_path: &Path) -> anyhow::Result<PathBu
     }
 
     Ok(out_path)
+}
+
+fn extract_file(entry: &mut impl Read, out_path: &Path) -> anyhow::Result<()> {
+    if let Some(parent_dir) = out_path.parent() {
+        std::fs::create_dir_all(parent_dir)
+            .with_context(|| format!("failed to create dir at \"{}\"", parent_dir.display()))?;
+    }
+
+    let mut file = File::options()
+        .create_new(true)
+        .write(true)
+        .open(out_path)?;
+
+    std::io::copy(entry, &mut file)?;
+
+    file.flush()?;
+    file.sync_all()?;
+
+    Ok(())
 }
