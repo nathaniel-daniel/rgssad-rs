@@ -1,3 +1,5 @@
+// #[warn(clippy::arithmetic_side_effects)]
+
 /// The archive reader.
 pub mod reader;
 /// The archive writer.
@@ -39,6 +41,9 @@ pub enum Error {
 
     /// The provided file size does not match the file data's size.
     FileDataSizeMismatch { actual: u32, expected: u32 },
+
+    /// The file data was too long
+    FileDataTooLong,
 }
 
 impl std::fmt::Display for Error {
@@ -53,6 +58,7 @@ impl std::fmt::Display for Error {
                 f,
                 "file data size mismatch, expected {expected} but got {actual}"
             ),
+            Self::FileDataTooLong => write!(f, "file data too long"),
         }
     }
 }

@@ -128,9 +128,14 @@ where
                 break;
             }
 
-            // TODO: Error if exceeded.
-            bytes_written += u32::try_from(n).unwrap();
+            // We assume that the scratch buffer is smaller than 4 gigabytes.
+            bytes_written = bytes_written
+                .checked_add(u32::try_from(n).expect("too many bytes written"))
+                .ok_or(Error::FileDataTooLong)?;
 
+            // TODO: We can possibly be more efficient here.
+            // If we are able to cast this to a slice of u32s,
+            // we can encrypt that instead and use this byte-wise impl only at the end.
             for byte in self.buffer[..n].iter_mut() {
                 *byte ^= key.to_le_bytes()[usize::from(counter)];
                 if counter == 3 {
