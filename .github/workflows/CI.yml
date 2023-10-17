@@ -7,7 +7,7 @@ name: Rust
     branches:
       - master
 jobs:
-  Lint:
+  lint:
     name: Lint
     runs-on: ubuntu-latest
     steps:
@@ -28,7 +28,7 @@ jobs:
       - name: Clippy
         run: cargo clippy --tests -- -D warnings
           
-  Deny:
+  deny:
     name: Deny
     runs-on: ubuntu-latest
     steps:
@@ -38,12 +38,14 @@ jobs:
       - name: Deny
         uses: EmbarkStudios/cargo-deny-action@v1
         
-  Build:
+  build:
     name: Build
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          lfs: true
         
       - name: Cache
         uses: actions/cache@v3
