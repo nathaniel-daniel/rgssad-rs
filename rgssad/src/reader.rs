@@ -29,16 +29,6 @@ impl<R> Reader<R> {
     pub fn into_inner(self) -> R {
         self.reader
     }
-
-    /// Get a reference to the inner reader.
-    pub fn get_ref(&self) -> &R {
-        &self.reader
-    }
-
-    /// Get a mutable reference to the inner reader.
-    pub fn get_mut(&mut self) -> &mut R {
-        &mut self.reader
-    }
 }
 
 impl<R> Reader<R>
@@ -129,9 +119,13 @@ where
 
     /// Read the next entry from this archive.
     pub fn read_entry(&mut self) -> Result<Option<Entry<R>>, Error> {
+        // Seek to start of entry.
+        //
+        // This is necessary as the user may have messed up our position by reading from the last entry.
         self.reader
             .seek(SeekFrom::Start(self.next_entry_position))?;
 
+        // Read file name
         let file_name = match self.read_decrypt_file_name()? {
             Some(file_name) => file_name,
             None => {
@@ -139,8 +133,10 @@ where
             }
         };
 
+        // Read file size
         let size = self.read_decrypt_u32()?;
 
+        // Calculate the offset of the next entry.
         self.next_entry_position = self.reader.stream_position()? + u64::from(size);
 
         Ok(Some(Entry {
@@ -157,19 +153,22 @@ where
 #[allow(dead_code)]
 #[derive(Debug)]
 pub struct Entry<'a, R> {
-    /// The file path
+    /// The file path.
     file_name: String,
 
-    /// The file size
+    /// The file size.
     size: u32,
 
-    /// The current encryption key
+    /// The current encryption key.
     key: u32,
 
-    /// The inner reader
+    /// The inner reader.
     reader: std::io::Take<&'a mut R>,
 
     /// The inner counter, used for rotating the encryption key.
+    ///
+    /// This is necessary as the encryption key is rotated for every 4 bytes,
+    /// but the [`Read`] object that we wrap does not need to obey these boundaries.
     counter: u8,
 }
 
@@ -182,5 +181,26 @@ impl<R> Entry<'_, R> {
     /// The file size
     pub fn size(&self) -> u32 {
         self.size
+    }
+}
+
+impl<R> Read for Entry<'_, R>
+where
+    R: Read,
+{
+    fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+        // Read encrypted bytes into the provided buffer.
+        let n = self.reader.read(buffer)?;
+
+        // Decrypt the encrypted bytes in-place.
+        for byte in buffer[..n].iter_mut() {
+            *byte ^= self.key.to_le_bytes()[usize::from(self.counter)];
+            if self.counter == 3 {
+                self.key = self.key.overflowing_mul(7).0.overflowing_add(3).0;
+            }
+            self.counter = (self.counter + 1) % 4;
+        }
+
+        Ok(n)
     }
 }

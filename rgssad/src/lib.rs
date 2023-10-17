@@ -58,6 +58,7 @@ impl From<std::io::Error> for Error {
 #[cfg(test)]
 mod test {
     use super::*;
+    use std::io::Read;
     use std::io::Seek;
     use std::io::SeekFrom;
 
@@ -70,20 +71,25 @@ mod test {
         let mut reader = Reader::new(file).expect("failed to create reader");
 
         // Ensure skipping works.
-        while let Some(_entry) = reader.read_entry().expect("failed to read entry") {}
-
-        reader
-            .get_mut()
-            .seek(SeekFrom::Start(0))
-            .expect("failed to seek to start");
-
-        //let mut entries = Vec::new();
+        let mut num_skipped_entries = 0;
         while let Some(_entry) = reader.read_entry().expect("failed to read entry") {
-            // let mut buffer = Vec::new();
-            /*
+            num_skipped_entries += 1;
+        }
+
+        // Reset position and recreate reader.
+        let mut file = reader.into_inner();
+        file.seek(SeekFrom::Start(0))
+            .expect("failed to seek to start");
+        let mut reader = Reader::new(file).expect("failed to create reader");
+
+        // Read entire archive into Vec.
+        let mut entries = Vec::new();
+        while let Some(mut entry) = reader.read_entry().expect("failed to read entry") {
+            let mut buffer = Vec::new();
             entry.read_to_end(&mut buffer).expect("failed to read file");
             entries.push((entry.file_name().to_string(), buffer));
-            */
         }
+
+        assert!(entries.len() == num_skipped_entries);
     }
 }
