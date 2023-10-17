@@ -29,6 +29,16 @@ impl<R> Reader<R> {
     pub fn into_inner(self) -> R {
         self.reader
     }
+
+    /// Get a reference to the inner reader.
+    pub fn get_ref(&self) -> &R {
+        &self.reader
+    }
+
+    /// Get a mutable reference to the inner reader.
+    pub fn get_mut(&mut self) -> &mut R {
+        &mut self.reader
+    }
 }
 
 impl<R> Reader<R>
@@ -161,4 +171,16 @@ pub struct Entry<'a, R> {
 
     /// The inner counter, used for rotating the encryption key.
     counter: u8,
+}
+
+impl<R> Entry<'_, R> {
+    /// The file path
+    pub fn file_name(&self) -> &str {
+        self.file_name.as_str()
+    }
+
+    /// The file size
+    pub fn size(&self) -> u32 {
+        self.size
+    }
 }

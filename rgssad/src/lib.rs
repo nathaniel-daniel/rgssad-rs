@@ -1,4 +1,4 @@
-mod reader;
+pub mod reader;
 
 pub use self::reader::Reader;
 
@@ -58,6 +58,8 @@ impl From<std::io::Error> for Error {
 #[cfg(test)]
 mod test {
     use super::*;
+    use std::io::Seek;
+    use std::io::SeekFrom;
 
     const VX_TEST_GAME: &str = "test_data/RPGMakerVXTestGame-Export/RPGMakerVXTestGame/Game.rgss2a";
 
@@ -70,9 +72,14 @@ mod test {
         // Ensure skipping works.
         while let Some(_entry) = reader.read_entry().expect("failed to read entry") {}
 
+        reader
+            .get_mut()
+            .seek(SeekFrom::Start(0))
+            .expect("failed to seek to start");
+
         //let mut entries = Vec::new();
-        while let Some(entry) = reader.read_entry().expect("failed to read entry") {
-            //let mut buffer = Vec::new();
+        while let Some(_entry) = reader.read_entry().expect("failed to read entry") {
+            // let mut buffer = Vec::new();
             /*
             entry.read_to_end(&mut buffer).expect("failed to read file");
             entries.push((entry.file_name().to_string(), buffer));
