@@ -1,6 +1,10 @@
+/// The archive reader.
 pub mod reader;
+/// The archive writer.
+pub mod writer;
 
 pub use self::reader::Reader;
+pub use self::writer::Writer;
 
 /// The magic number
 const MAGIC: &[u8] = b"RGSSAD\0";
@@ -99,5 +103,38 @@ mod test {
         }
 
         assert!(entries.len() == num_skipped_entries);
+    }
+
+    #[test]
+    fn reader_writer_smoke() {
+        let file = std::fs::read(VX_TEST_GAME).expect("failed to open archive");
+        let file = std::io::Cursor::new(file);
+        let mut reader = Reader::new(file).expect("failed to create reader");
+
+        // Read entire archive into Vec.
+        let mut entries = Vec::new();
+        while let Some(mut entry) = reader.read_entry().expect("failed to read entry") {
+            let mut buffer = Vec::new();
+            entry.read_to_end(&mut buffer).expect("failed to read file");
+            entries.push((entry.file_name().to_string(), buffer));
+        }
+
+        // Write all entries into new archive.
+        let mut new_file = Vec::new();
+        let mut writer = Writer::new(&mut new_file).expect("failed to create writer");
+        for (file_name, file_data) in entries.iter() {
+            writer
+                .write_entry(
+                    file_name,
+                    u32::try_from(file_data.len()).expect("file data too large"),
+                    &**file_data,
+                )
+                .expect("failed to write entry");
+        }
+
+        let file = reader.into_inner();
+
+        // Ensure archives are byte-for-byte equivalent.
+        assert!(&new_file == file.get_ref());
     }
 }

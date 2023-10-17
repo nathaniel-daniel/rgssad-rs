@@ -7,7 +7,6 @@ use std::io::Seek;
 use std::io::SeekFrom;
 
 /// A reader for a "rgssad" archive file
-#[allow(dead_code)]
 #[derive(Debug)]
 pub struct Reader<R> {
     /// The underlying reader.
@@ -138,7 +137,7 @@ where
             }
         };
 
-        // Read file size
+        // Read file size.
         let size = self.read_decrypt_u32()?;
 
         // Calculate the offset of the next entry.
