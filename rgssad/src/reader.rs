@@ -96,8 +96,13 @@ where
             Err(e) => return Err(e.into()),
         };
 
-        // We assume the file name can fit in memory.
-        let size = usize::try_from(size).expect("file name cannot fit in memory.");
+        // Validate file name length.
+        //
+        // This is an extreme edge case,
+        // which can only occur if the following is true:
+        // 1. usize == u16
+        // 2. file_name.len() > u16::MAX
+        let size = usize::try_from(size).map_err(|error| Error::FileNameTooLong { error })?;
 
         let mut file_name = vec![0; size];
         self.reader.read_exact(&mut file_name)?;

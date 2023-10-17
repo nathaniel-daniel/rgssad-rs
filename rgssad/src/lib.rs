@@ -21,6 +21,12 @@ pub enum Error {
     /// Invalid version
     InvalidVersion { version: u8 },
 
+    /// The file name was too long
+    FileNameTooLong {
+        /// The error
+        error: std::num::TryFromIntError,
+    },
+
     /// A file name was invalid.
     InvalidFileName {
         /// The error
@@ -34,6 +40,7 @@ impl std::fmt::Display for Error {
             Self::Io(_error) => write!(f, "an I/O error occured"),
             Self::InvalidMagic { magic } => write!(f, "magic number \"{magic:?}\" is invalid"),
             Self::InvalidVersion { version } => write!(f, "version \"{version}\" is invalid"),
+            Self::FileNameTooLong { .. } => write!(f, "the file name is too long"),
             Self::InvalidFileName { .. } => write!(f, "invalid file name"),
         }
     }
@@ -43,6 +50,7 @@ impl std::error::Error for Error {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::Io(error) => Some(error),
+            Self::FileNameTooLong { error } => Some(error),
             Self::InvalidFileName { error } => Some(error),
             _ => None,
         }
