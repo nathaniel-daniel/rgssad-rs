@@ -4,6 +4,7 @@ use crate::MAGIC;
 use crate::VERSION;
 use std::io::Read;
 use std::io::Seek;
+use std::io::SeekFrom;
 
 /// A reader for a "rgssad" archive file
 #[allow(dead_code)]
@@ -12,7 +13,14 @@ pub struct Reader<R> {
     /// The underlying reader.
     reader: R,
 
+    /// The current encryption key.
     key: u32,
+
+    /// The offset of the next entry, from the start of the reader.
+    ///
+    /// This is necessary as the inner reader object is passed to [`Entry`] objects,
+    /// which may modify the position as they see fit.
+    /// They are even allowed to not completely read all contents of the entry.
     next_entry_position: u64,
 }
 
@@ -35,6 +43,7 @@ where
             next_entry_position: 0,
         };
         reader.read_header()?;
+        reader.next_entry_position = reader.reader.stream_position()?;
 
         Ok(reader)
     }
@@ -55,4 +64,101 @@ where
 
         Ok(())
     }
+
+    /// Read a u32 that has been encrypted.
+    fn read_decrypt_u32(&mut self) -> std::io::Result<u32> {
+        let mut buffer = [0; 4];
+        self.reader.read_exact(&mut buffer)?;
+        let mut n = u32::from_le_bytes(buffer);
+        n ^= self.key;
+        self.key = self.key.overflowing_mul(7).0.overflowing_add(3).0;
+
+        Ok(n)
+    }
+
+    /// Read the file name of the following entry.
+    ///
+    /// # Returns
+    /// Returns an error if an I/O error occured.
+    /// Returns `None` if at the end of the file.
+    /// Returns the file name if successful.
+    fn read_decrypt_file_name(&mut self) -> Result<Option<String>, Error> {
+        // We turn EOF errors into None here.
+        // This is because a missing file name (and by extension a missing file name size),
+        // indicate the end of the archive.
+        //
+        // TODO:
+        // The aforementioned approach is flawed in some edge cases;
+        // trailing bytes that are less than 4 bytes long should become errors, not None.
+        let size = match self.read_decrypt_u32() {
+            Ok(file_name) => file_name,
+            Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => return Ok(None),
+            Err(e) => return Err(e.into()),
+        };
+
+        // We assume the file name can fit in memory.
+        let size = usize::try_from(size).expect("file name cannot fit in memory.");
+
+        let mut file_name = vec![0; size];
+        self.reader.read_exact(&mut file_name)?;
+        for byte in file_name.iter_mut() {
+            // We mask with 0xFF, this cannot exceed the bounds of a u8.
+            *byte ^= u8::try_from(self.key & 0xFF).unwrap();
+            self.key = self.key.overflowing_mul(7).0.overflowing_add(3).0;
+        }
+
+        // I'm fairly certain these are required to be ASCII, but I forget the source.
+        //
+        // TODO:
+        // Link source for ASCII file names, or do not assume ASCII file names.
+        let file_name =
+            String::from_utf8(file_name).map_err(|error| Error::InvalidFileName { error })?;
+
+        Ok(Some(file_name))
+    }
+
+    /// Read the next entry from this archive.
+    pub fn read_entry(&mut self) -> Result<Option<Entry<R>>, Error> {
+        self.reader
+            .seek(SeekFrom::Start(self.next_entry_position))?;
+
+        let file_name = match self.read_decrypt_file_name()? {
+            Some(file_name) => file_name,
+            None => {
+                return Ok(None);
+            }
+        };
+
+        let size = self.read_decrypt_u32()?;
+
+        self.next_entry_position = self.reader.stream_position()? + u64::from(size);
+
+        Ok(Some(Entry {
+            file_name,
+            size,
+            key: self.key,
+            reader: self.reader.by_ref().take(size.into()),
+            counter: 0,
+        }))
+    }
+}
+
+/// An entry in an rgssad file
+#[allow(dead_code)]
+#[derive(Debug)]
+pub struct Entry<'a, R> {
+    /// The file path
+    file_name: String,
+
+    /// The file size
+    size: u32,
+
+    /// The current encryption key
+    key: u32,
+
+    /// The inner reader
+    reader: std::io::Take<&'a mut R>,
+
+    /// The inner counter, used for rotating the encryption key.
+    counter: u8,
 }
