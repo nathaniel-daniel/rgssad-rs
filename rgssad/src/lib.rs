@@ -50,9 +50,13 @@ impl From<std::io::Error> for Error {
 #[cfg(test)]
 mod test {
     use super::*;
+    use std::fs::File;
+
+    const VX_TEST_GAME: &str = "test_data/RPGMakerVXTestGame-Export/RPGMakerVXTestGame/Game.rgss2a";
 
     #[test]
     fn reader_smoke() {
-        
+        let file = File::open(VX_TEST_GAME).expect("failed to open archive");
+        let _reader = Reader::new(file).expect("failed to create reader");
     }
 }
