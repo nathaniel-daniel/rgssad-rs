@@ -129,7 +129,7 @@ where
             }
 
             // TODO: Error if exceeded.
-            bytes_written += n as u32;
+            bytes_written += u32::try_from(n).unwrap();
 
             for byte in self.buffer[..n].iter_mut() {
                 *byte ^= key.to_le_bytes()[usize::from(counter)];
@@ -143,7 +143,10 @@ where
         }
 
         if file_size != bytes_written {
-            todo!();
+            return Err(Error::FileDataSizeMismatch {
+                actual: bytes_written,
+                expected: file_size,
+            });
         }
 
         Ok(())

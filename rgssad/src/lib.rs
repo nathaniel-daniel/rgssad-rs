@@ -36,6 +36,9 @@ pub enum Error {
         /// The error
         error: std::string::FromUtf8Error,
     },
+
+    /// The provided file size does not match the file data's size.
+    FileDataSizeMismatch { actual: u32, expected: u32 },
 }
 
 impl std::fmt::Display for Error {
@@ -46,6 +49,10 @@ impl std::fmt::Display for Error {
             Self::InvalidVersion { version } => write!(f, "version \"{version}\" is invalid"),
             Self::FileNameTooLong { .. } => write!(f, "the file name is too long"),
             Self::InvalidFileName { .. } => write!(f, "invalid file name"),
+            Self::FileDataSizeMismatch { actual, expected } => write!(
+                f,
+                "file data size mismatch, expected {expected} but got {actual}"
+            ),
         }
     }
 }
