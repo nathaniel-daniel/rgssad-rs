@@ -1,9 +1,3 @@
-# rgssad-rs
-A Rust library for reading and writing RPGMaker XP and RPGMaker VX archives from Rust.
-This currently includes support for ".rgssad" and "rgssa2" files.
-
-## Example
-```rust
 use std::io::Read;
 
 const ARCHIVE_PATH: &str = "Game.rgssad";
@@ -43,43 +37,3 @@ fn main() {
     // The old archive and new archive are byte-for-byte equivalent.
     assert!(&new_file == file.get_ref());
 }
-```
-
-## CLI
-This repository also contains a small CLI to unpack and repack these archives.
-
-### Installing
-This small CLI may be installed with the following:
-```bash
-cargo install --force --git https://github.com/nathaniel-daniel/rgssad-rs
-```
-
-### Usage
-Unpacking may be done with the following:
-```bash
-rgssad-cli unpack path-to-archive.rgssad -o path-to-output-directory
-```
-
-Packing may be done with the following:
-```bash
-rgssad-cli pack path-to-directory path-to-new-archive.rgssad
-```
-
-## Testing
-Currently, only `rgssad` has tests; the CLI is not tested.
-Tests may be run with the following command:
-```bash
-cargo test
-```
-
-## License
-Licensed under either of
- * Apache License, Version 2.0
-   ([LICENSE-APACHE](LICENSE-APACHE) or http://www.apache.org/licenses/LICENSE-2.0)
- * MIT license
-   ([LICENSE-MIT](LICENSE-MIT) or http://opensource.org/licenses/MIT)
-
-at your option.
-
-## Contributing
-Unless you explicitly state otherwise, any contribution intentionally submitted for inclusion in the work by you, as defined in the Apache-2.0 license, shall be dual licensed as above, without any additional terms or conditions.

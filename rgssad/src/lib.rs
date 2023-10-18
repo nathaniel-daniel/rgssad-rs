@@ -144,7 +144,7 @@ mod test {
                 )
                 .expect("failed to write entry");
         }
-        writer.flush().expect("failed to flush");
+        writer.finish().expect("failed to flush");
 
         let file = reader.into_inner();
 
