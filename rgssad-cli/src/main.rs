@@ -11,6 +11,7 @@ struct Options {
 #[argh(subcommand)]
 enum Subcommand {
     Unpack(self::commands::unpack::Options),
+    Pack(self::commands::pack::Options),
 }
 
 fn main() -> anyhow::Result<()> {
@@ -19,6 +20,9 @@ fn main() -> anyhow::Result<()> {
     match options.subcommand {
         Subcommand::Unpack(options) => {
             self::commands::unpack::exec(options)?;
+        }
+        Subcommand::Pack(options) => {
+            self::commands::pack::exec(options)?;
         }
     }
 
