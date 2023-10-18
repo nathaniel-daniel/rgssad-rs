@@ -1,0 +1,13 @@
+[package]
+name = "rgssad-wasm"
+version = "0.0.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+js-sys = "0.3.64"
+rgssad = { path = "../rgssad" }
+wasm-bindgen = "0.2.87"

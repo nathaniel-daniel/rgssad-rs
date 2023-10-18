@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "rgssad",
     "rgssad-cli",
+    "rgssad-wasm",
 ]
 
 [profile.release]
