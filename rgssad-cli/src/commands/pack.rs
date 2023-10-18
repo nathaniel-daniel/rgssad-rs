@@ -1,6 +1,5 @@
 use anyhow::Context;
 use std::fs::File;
-use std::io::Write;
 use std::path::PathBuf;
 use walkdir::WalkDir;
 
@@ -58,8 +57,8 @@ pub fn exec(options: Options) -> anyhow::Result<()> {
 
         writer.write_entry(relative_path_str, file_size, file)?;
     }
+    writer.finish()?;
 
-    output_file.flush()?;
     output_file.sync_all()?;
 
     Ok(())

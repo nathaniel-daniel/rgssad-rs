@@ -156,4 +156,12 @@ where
 
         Ok(())
     }
+
+    /// Finish writing.
+    ///
+    /// This is only a convenience function to call the inner [`Write`] object's [`Write::flush`] method.
+    pub fn finish(&mut self) -> Result<(), Error> {
+        self.writer.flush()?;
+        Ok(())
+    }
 }
