@@ -26,7 +26,7 @@ pub struct Options {
 
 pub fn exec(options: Options) -> anyhow::Result<()> {
     let file = File::open(options.input)?;
-    let mut reader = rgssad::Reader::new(file)?;
+    let mut reader = rgssad::Reader::new(file).read_header()?;
 
     std::fs::create_dir_all(&options.output).with_context(|| {
         format!(
