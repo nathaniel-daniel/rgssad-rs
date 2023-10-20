@@ -5,10 +5,17 @@ use crate::VERSION;
 use std::io::Read;
 use std::io::Seek;
 use std::io::SeekFrom;
+use std::marker::PhantomData;
+
+/// The state for when the Reader must read the header.
+pub struct HeaderState;
+
+/// The state for when the Reader can read entries.
+pub struct EntryState;
 
 /// A reader for a "rgssad" archive file
 #[derive(Debug)]
-pub struct Reader<R> {
+pub struct Reader<R, S> {
     /// The underlying reader.
     reader: R,
 
@@ -21,34 +28,35 @@ pub struct Reader<R> {
     /// which may modify the position as they see fit.
     /// They are even allowed to not completely read all contents of the entry.
     next_entry_position: u64,
+
+    state: PhantomData<S>,
 }
 
-impl<R> Reader<R> {
+impl<R, S> Reader<R, S> {
     /// Get the inner reader.
     pub fn into_inner(self) -> R {
         self.reader
     }
 }
 
-impl<R> Reader<R>
+impl<R> Reader<R, HeaderState>
 where
     R: Read + Seek,
 {
     /// Create a new [`Reader`] with the default encryption key.
-    pub fn new(reader: R) -> Result<Self, Error> {
-        let mut reader = Self {
+    pub fn new(reader: R) -> Reader<R, HeaderState> {
+        Reader {
             reader,
             key: DEFAULT_KEY,
             next_entry_position: 0,
-        };
-        reader.read_header()?;
-        reader.next_entry_position = reader.reader.stream_position()?;
-
-        Ok(reader)
+            state: PhantomData,
+        }
     }
 
     /// Read and validate the header.
-    fn read_header(&mut self) -> Result<(), Error> {
+    ///
+    /// # Returns a new [`Reader`] that is ready to read entries.
+    pub fn read_header(mut self) -> Result<Reader<R, EntryState>, Error> {
         let mut magic = [0; 7];
         self.reader.read_exact(&mut magic)?;
         if magic != MAGIC {
@@ -61,9 +69,20 @@ where
             return Err(Error::InvalidVersion { version });
         }
 
-        Ok(())
+        self.next_entry_position = self.reader.stream_position()?;
+        Ok(Reader {
+            reader: self.reader,
+            key: self.key,
+            next_entry_position: self.next_entry_position,
+            state: PhantomData,
+        })
     }
+}
 
+impl<R> Reader<R, EntryState>
+where
+    R: Read + Seek,
+{
     /// Read a u32 that has been encrypted.
     fn read_decrypt_u32(&mut self) -> std::io::Result<u32> {
         let mut buffer = [0; 4];

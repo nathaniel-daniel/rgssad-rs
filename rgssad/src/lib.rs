@@ -93,7 +93,9 @@ mod test {
     fn reader_smoke() {
         let file = std::fs::read(VX_TEST_GAME).expect("failed to open archive");
         let file = std::io::Cursor::new(file);
-        let mut reader = Reader::new(file).expect("failed to create reader");
+        let mut reader = Reader::new(file)
+            .read_header()
+            .expect("failed to read header");
 
         // Ensure skipping works.
         let mut num_skipped_entries = 0;
@@ -105,7 +107,9 @@ mod test {
         let mut file = reader.into_inner();
         file.seek(SeekFrom::Start(0))
             .expect("failed to seek to start");
-        let mut reader = Reader::new(file).expect("failed to create reader");
+        let mut reader = Reader::new(file)
+            .read_header()
+            .expect("failed to read header");
 
         // Read entire archive into Vec.
         let mut entries = Vec::new();
@@ -122,7 +126,9 @@ mod test {
     fn reader_writer_smoke() {
         let file = std::fs::read(VX_TEST_GAME).expect("failed to open archive");
         let file = std::io::Cursor::new(file);
-        let mut reader = Reader::new(file).expect("failed to create reader");
+        let mut reader = Reader::new(file)
+            .read_header()
+            .expect("failed to read header");
 
         // Read entire archive into Vec.
         let mut entries = Vec::new();
