@@ -7,11 +7,10 @@ use std::task::Waker;
 use tokio::io::AsyncBufRead;
 use tokio::io::AsyncRead;
 use tokio::io::AsyncSeek;
-use tokio::io::BufReader;
 use tokio::io::ReadBuf;
 
 struct ReaderAdapter<R> {
-    reader: BufReader<R>,
+    reader: R,
     waker: Option<Waker>,
 }
 
@@ -21,7 +20,7 @@ where
 {
     fn new(reader: R) -> Self {
         Self {
-            reader: BufReader::new(reader),
+            reader: reader,
             waker: None,
         }
     }
