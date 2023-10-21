@@ -1,3 +1,6 @@
+mod buffer;
+
+use self::buffer::Buffer;
 use crate::Error;
 use crate::DEFAULT_KEY;
 use crate::MAGIC;
@@ -5,13 +8,51 @@ use crate::VERSION;
 use std::io::Read;
 use std::io::Seek;
 use std::io::SeekFrom;
-use std::marker::PhantomData;
 
 /// The state for when the Reader must read the header.
-pub struct HeaderState;
+#[derive(Debug)]
+pub enum State {
+    // Header States
+    ReadMagic {
+        buffer: Buffer<[u8; 7]>,
+    },
+    ReadVersion,
+    GetStreamPosition,
 
-/// The state for when the Reader can read entries.
-pub struct EntryState;
+    // Entry States
+    SeekEntry,
+    ReadFileNameSize {
+        buffer: Buffer<[u8; 4]>,
+    },
+    ReadFileName {
+        buffer: Buffer<Vec<u8>>,
+        encrypted: bool,
+    },
+    ReadFileSize {
+        file_name: String,
+        buffer: Buffer<[u8; 4]>,
+    },
+}
+
+/// Read a u32 that has been encrypted.
+fn read_decrypt_u32<R>(
+    reader: R,
+    buffer: &mut Buffer<[u8; 4]>,
+    key: &mut u32,
+) -> std::io::Result<u32>
+where
+    R: Read,
+{
+    // Read
+    buffer.fill(reader)?;
+    let mut n = u32::from_le_bytes(*buffer.buffer_ref());
+
+    // Decrypt
+    n ^= *key;
+    *key = key.overflowing_mul(7).0.overflowing_add(3).0;
+
+    Ok(n)
+}
 
 /// A reader for a "rgssad" archive file
 #[derive(Debug)]
@@ -29,7 +70,7 @@ pub struct Reader<R, S> {
     /// They are even allowed to not completely read all contents of the entry.
     next_entry_position: u64,
 
-    state: PhantomData<S>,
+    state: S,
 }
 
 impl<R, S> Reader<R, S> {
@@ -39,138 +80,165 @@ impl<R, S> Reader<R, S> {
     }
 }
 
-impl<R> Reader<R, HeaderState> {
+impl<R> Reader<R, State> {
     /// Create a new [`Reader`] with the default encryption key.
-    pub fn new(reader: R) -> Reader<R, HeaderState> {
+    pub fn new(reader: R) -> Reader<R, State> {
         Reader {
             reader,
             key: DEFAULT_KEY,
             next_entry_position: 0,
-            state: PhantomData,
+            state: State::ReadMagic {
+                buffer: Buffer::new([0; 7]),
+            },
         }
     }
 }
 
-impl<R> Reader<R, HeaderState>
+impl<R> Reader<R, State>
 where
     R: Read + Seek,
 {
     /// Read and validate the header.
     ///
-    /// # Returns a new [`Reader`] that is ready to read entries.
-    pub fn read_header(mut self) -> Result<Reader<R, EntryState>, Error> {
-        let mut magic = [0; 7];
-        self.reader.read_exact(&mut magic)?;
-        if magic != MAGIC {
-            return Err(Error::InvalidMagic { magic });
+    /// After this returns, call [`Reader::read_entry`] to read through entries.
+    /// This function is a NOP if the header has already been read.
+    pub fn read_header(&mut self) -> Result<(), Error> {
+        loop {
+            match &mut self.state {
+                State::ReadMagic { buffer } => {
+                    buffer.fill(&mut self.reader)?;
+                    let magic = buffer.buffer_ref();
+                    if magic != MAGIC {
+                        return Err(Error::InvalidMagic { magic: *magic });
+                    }
+                    self.state = State::ReadVersion;
+                    continue;
+                }
+                State::ReadVersion => {
+                    // No need to persist, we can't have partial buffer fills since its a single byte.
+                    let mut buffer = Buffer::new([0]);
+                    buffer.fill(&mut self.reader)?;
+                    let version = buffer.buffer_ref()[0];
+                    if version != VERSION {
+                        return Err(Error::InvalidVersion { version });
+                    }
+
+                    self.state = State::GetStreamPosition;
+                }
+                State::GetStreamPosition => {
+                    self.next_entry_position = self.reader.stream_position()?;
+
+                    // TODO: We can just jump to the read file name state since we haven't handed out an entry yet.
+                    self.state = State::SeekEntry;
+
+                    return Ok(());
+                }
+                _ => {
+                    // We already read the header somehow.
+                    return Ok(());
+                }
+            }
         }
-
-        let mut version = 0;
-        self.reader.read_exact(std::slice::from_mut(&mut version))?;
-        if version != VERSION {
-            return Err(Error::InvalidVersion { version });
-        }
-
-        self.next_entry_position = self.reader.stream_position()?;
-        Ok(Reader {
-            reader: self.reader,
-            key: self.key,
-            next_entry_position: self.next_entry_position,
-            state: PhantomData,
-        })
-    }
-}
-
-impl<R> Reader<R, EntryState>
-where
-    R: Read + Seek,
-{
-    /// Read a u32 that has been encrypted.
-    fn read_decrypt_u32(&mut self) -> std::io::Result<u32> {
-        let mut buffer = [0; 4];
-        self.reader.read_exact(&mut buffer)?;
-        let mut n = u32::from_le_bytes(buffer);
-        n ^= self.key;
-        self.key = self.key.overflowing_mul(7).0.overflowing_add(3).0;
-
-        Ok(n)
-    }
-
-    /// Read the file name of the following entry.
-    ///
-    /// # Returns
-    /// Returns an error if an I/O error occured.
-    /// Returns `None` if at the end of the file.
-    /// Returns the file name if successful.
-    fn read_decrypt_file_name(&mut self) -> Result<Option<String>, Error> {
-        // We turn EOF errors into None here.
-        // This is because a missing file name (and by extension a missing file name size),
-        // indicate the end of the archive.
-        //
-        // TODO:
-        // The aforementioned approach is flawed in some edge cases;
-        // trailing bytes that are less than 4 bytes long should become errors, not None.
-        let size = match self.read_decrypt_u32() {
-            Ok(file_name) => file_name,
-            Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => return Ok(None),
-            Err(e) => return Err(e.into()),
-        };
-
-        // Validate file name length.
-        //
-        // This is an extreme edge case,
-        // which can only occur if the following is true:
-        // 1. usize == u16
-        // 2. file_name.len() > u16::MAX
-        let size = usize::try_from(size).map_err(|error| Error::FileNameTooLong { error })?;
-
-        let mut file_name = vec![0; size];
-        self.reader.read_exact(&mut file_name)?;
-        for byte in file_name.iter_mut() {
-            // We mask with 0xFF, this cannot exceed the bounds of a u8.
-            *byte ^= u8::try_from(self.key & 0xFF).unwrap();
-            self.key = self.key.overflowing_mul(7).0.overflowing_add(3).0;
-        }
-
-        // I'm fairly certain these are required to be ASCII, but I forget the source.
-        //
-        // TODO:
-        // Link source for ASCII file names, or do not assume ASCII file names.
-        let file_name =
-            String::from_utf8(file_name).map_err(|error| Error::InvalidFileName { error })?;
-
-        Ok(Some(file_name))
     }
 
     /// Read the next entry from this archive.
     pub fn read_entry(&mut self) -> Result<Option<Entry<R>>, Error> {
-        // Seek to start of entry.
-        //
-        // This is necessary as the user may have messed up our position by reading from the last entry.
-        self.reader
-            .seek(SeekFrom::Start(self.next_entry_position))?;
+        loop {
+            match &mut self.state {
+                State::SeekEntry => {
+                    // Seek to start of entry.
+                    //
+                    // This is necessary as the user may have messed up our position by reading from the last entry.
+                    self.reader
+                        .seek(SeekFrom::Start(self.next_entry_position))?;
 
-        // Read file name
-        let file_name = match self.read_decrypt_file_name()? {
-            Some(file_name) => file_name,
-            None => {
-                return Ok(None);
+                    self.state = State::ReadFileNameSize {
+                        buffer: Buffer::new([0; 4]),
+                    };
+                }
+                State::ReadFileNameSize { buffer } => {
+                    // We turn EOF errors into None here.
+                    // This is because a missing file name (and by extension a missing file name size),
+                    // indicate the end of the archive.
+                    let size = match read_decrypt_u32(&mut self.reader, buffer, &mut self.key) {
+                        Ok(size) => size,
+                        Err(error)
+                            if error.kind() == std::io::ErrorKind::UnexpectedEof
+                                && buffer.position() == 0 =>
+                        {
+                            return Ok(None);
+                        }
+                        Err(error) => {
+                            return Err(Error::Io(error));
+                        }
+                    };
+
+                    // Validate file name length.
+                    //
+                    // This is an extreme edge case,
+                    // which can only occur if the following is true:
+                    // 1. usize == u16
+                    // 2. file_name.len() > u16::MAX
+                    let size =
+                        usize::try_from(size).map_err(|error| Error::FileNameTooLong { error })?;
+
+                    self.state = State::ReadFileName {
+                        buffer: Buffer::new(vec![0; size]),
+                        encrypted: true,
+                    };
+                }
+                State::ReadFileName { buffer, encrypted } => {
+                    buffer.fill(&mut self.reader)?;
+
+                    let file_name = buffer.buffer_mut();
+                    if *encrypted {
+                        for byte in file_name.iter_mut() {
+                            // We mask with 0xFF, this cannot exceed the bounds of a u8.
+                            *byte ^= u8::try_from(self.key & 0xFF).unwrap();
+                            self.key = self.key.overflowing_mul(7).0.overflowing_add(3).0;
+                        }
+                        *encrypted = false;
+                    }
+
+                    // I'm fairly certain these are required to be ASCII, but I forget the source.
+                    //
+                    // TODO:
+                    // Link source for ASCII file names, or do not assume ASCII file names.
+                    let file_name = String::from_utf8(std::mem::take(file_name))
+                        .map_err(|error| Error::InvalidFileName { error })?;
+
+                    self.state = State::ReadFileSize {
+                        file_name,
+                        buffer: Buffer::new([0; 4]),
+                    };
+                }
+                State::ReadFileSize { file_name, buffer } => {
+                    let file_size = read_decrypt_u32(&mut self.reader, buffer, &mut self.key)?;
+
+                    // Calculate the offset of the next entry:
+                    // size_of(file_name_size) + size_of(file_name) + size_of(file_data_size) + size_of(file_data)
+                    //
+                    // We parsed the file size from a u32 so we can unwrap.
+                    self.next_entry_position +=
+                        4 + u64::try_from(file_name.len()).unwrap() + 4 + u64::from(file_size);
+
+                    let file_name = std::mem::take(file_name);
+
+                    self.state = State::SeekEntry;
+
+                    return Ok(Some(Entry {
+                        file_name,
+                        size: file_size,
+                        key: self.key,
+                        reader: self.reader.by_ref().take(file_size.into()),
+                        counter: 0,
+                    }));
+                }
+                _ => {
+                    return Err(Error::InvalidState);
+                }
             }
-        };
-
-        // Read file size.
-        let size = self.read_decrypt_u32()?;
-
-        // Calculate the offset of the next entry.
-        self.next_entry_position = self.reader.stream_position()? + u64::from(size);
-
-        Ok(Some(Entry {
-            file_name,
-            size,
-            key: self.key,
-            reader: self.reader.by_ref().take(size.into()),
-            counter: 0,
-        }))
+        }
     }
 }
 

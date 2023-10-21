@@ -21,6 +21,9 @@ pub enum Error {
     /// An I/O error occured.
     Io(std::io::Error),
 
+    /// Invalid internal state, user error
+    InvalidState,
+
     /// Invalid magic number
     InvalidMagic { magic: [u8; 7] },
 
@@ -50,6 +53,7 @@ impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Io(_error) => write!(f, "an I/O error occured"),
+            Self::InvalidState => write!(f, "user error, invalid internal state"),
             Self::InvalidMagic { magic } => write!(f, "magic number \"{magic:?}\" is invalid"),
             Self::InvalidVersion { version } => write!(f, "version \"{version}\" is invalid"),
             Self::FileNameTooLong { .. } => write!(f, "the file name is too long"),
@@ -83,9 +87,11 @@ impl From<std::io::Error> for Error {
 #[cfg(test)]
 mod test {
     use super::*;
+    use std::cell::RefCell;
     use std::io::Read;
     use std::io::Seek;
     use std::io::SeekFrom;
+    use std::rc::Rc;
 
     const VX_TEST_GAME: &str = "test_data/RPGMakerVXTestGame-Export/RPGMakerVXTestGame/Game.rgss2a";
 
@@ -93,9 +99,8 @@ mod test {
     fn reader_smoke() {
         let file = std::fs::read(VX_TEST_GAME).expect("failed to open archive");
         let file = std::io::Cursor::new(file);
-        let mut reader = Reader::new(file)
-            .read_header()
-            .expect("failed to read header");
+        let mut reader = Reader::new(file);
+        reader.read_header().expect("failed to read header");
 
         // Ensure skipping works.
         let mut num_skipped_entries = 0;
@@ -107,9 +112,8 @@ mod test {
         let mut file = reader.into_inner();
         file.seek(SeekFrom::Start(0))
             .expect("failed to seek to start");
-        let mut reader = Reader::new(file)
-            .read_header()
-            .expect("failed to read header");
+        let mut reader = Reader::new(file);
+        reader.read_header().expect("failed to read header");
 
         // Read entire archive into Vec.
         let mut entries = Vec::new();
@@ -126,9 +130,8 @@ mod test {
     fn reader_writer_smoke() {
         let file = std::fs::read(VX_TEST_GAME).expect("failed to open archive");
         let file = std::io::Cursor::new(file);
-        let mut reader = Reader::new(file)
-            .read_header()
-            .expect("failed to read header");
+        let mut reader = Reader::new(file);
+        reader.read_header().expect("failed to read header");
 
         // Read entire archive into Vec.
         let mut entries = Vec::new();
@@ -158,5 +161,121 @@ mod test {
 
         // Ensure archives are byte-for-byte equivalent.
         assert!(&new_file == file.get_ref());
+    }
+
+    #[test]
+    fn reader_trailing_bytes() {
+        let mut file = std::fs::read(VX_TEST_GAME).expect("failed to open archive");
+        file.push(1);
+        let file = std::io::Cursor::new(file);
+        let mut reader = Reader::new(file);
+        reader.read_header().expect("failed to read header");
+
+        while let Ok(Some(_entry)) = reader.read_entry() {}
+
+        let error = reader.read_entry().expect_err("reader should have errored");
+        assert!(
+            matches!(error, Error::Io(error) if error.kind() == std::io::ErrorKind::UnexpectedEof)
+        );
+    }
+
+    #[derive(Debug, Clone)]
+    struct SlowReader<R> {
+        inner: Rc<RefCell<(R, usize, Option<SeekFrom>)>>,
+    }
+
+    impl<R> SlowReader<R> {
+        pub fn new(reader: R) -> Self {
+            Self {
+                inner: Rc::new(RefCell::new((reader, 0, None))),
+            }
+        }
+
+        fn add_fuel(&self, fuel: usize) {
+            let mut inner = self.inner.borrow_mut();
+            inner.1 += fuel;
+        }
+    }
+
+    impl<R> Read for SlowReader<R>
+    where
+        R: Read,
+    {
+        fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+            let mut inner = self.inner.borrow_mut();
+            let (reader, fuel, _) = &mut *inner;
+
+            assert!(!buf.is_empty());
+            let limit = std::cmp::min(*fuel, buf.len());
+            let buf = &mut buf[..limit];
+            if buf.is_empty() {
+                return Err(std::io::Error::from(std::io::ErrorKind::WouldBlock));
+            }
+            let n = reader.read(buf)?;
+            *fuel -= n;
+
+            Ok(n)
+        }
+    }
+
+    impl<R> Seek for SlowReader<R>
+    where
+        R: Seek,
+    {
+        fn seek(&mut self, pos: SeekFrom) -> std::io::Result<u64> {
+            let mut inner = self.inner.borrow_mut();
+            let (reader, _, seek_request) = &mut *inner;
+            match seek_request {
+                Some(seek_request) => {
+                    assert!(pos == *seek_request, "{pos:?} != {seek_request:?}");
+                }
+                None => {
+                    *seek_request = Some(pos);
+                    return Err(std::io::Error::from(std::io::ErrorKind::WouldBlock));
+                }
+            }
+
+            let result = reader.seek(pos);
+            *seek_request = None;
+
+            result
+        }
+    }
+
+    #[test]
+    fn slow_reader() {
+        let file = std::fs::read(VX_TEST_GAME).expect("failed to open archive");
+        let file = std::io::Cursor::new(file);
+        let file = SlowReader::new(file);
+        let mut reader = Reader::new(file.clone());
+
+        loop {
+            match reader.read_header() {
+                Ok(()) => break,
+                Err(Error::Io(error)) if error.kind() == std::io::ErrorKind::WouldBlock => {}
+                Err(error) => {
+                    panic!("Error: {error:?}");
+                }
+            }
+
+            file.add_fuel(1);
+        }
+
+        loop {
+            match reader.read_entry() {
+                Ok(Some(entry)) => {
+                    dbg!(entry.file_name());
+                }
+                Ok(None) => {
+                    break;
+                }
+                Err(Error::Io(error)) if error.kind() == std::io::ErrorKind::WouldBlock => {}
+                Err(error) => {
+                    panic!("Error: {error:?}");
+                }
+            }
+
+            file.add_fuel(1);
+        }
     }
 }
