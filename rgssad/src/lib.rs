@@ -5,7 +5,13 @@ pub mod reader;
 /// The archive writer.
 pub mod writer;
 
+/// Tokio adapters for archive readers and writers.
+#[cfg(feature = "tokio")]
+pub mod tokio;
+
 pub use self::reader::Reader;
+#[cfg(feature = "tokio")]
+pub use self::tokio::TokioReader;
 pub use self::writer::Writer;
 
 /// The magic number
@@ -131,22 +137,6 @@ mod test {
 
         // Ensure archives are byte-for-byte equivalent.
         assert!(&new_file == file.get_ref());
-    }
-
-    #[test]
-    fn reader_trailing_bytes() {
-        let mut file = std::fs::read(VX_TEST_GAME).expect("failed to open archive");
-        file.push(1);
-        let file = std::io::Cursor::new(file);
-        let mut reader = Reader::new(file);
-        reader.read_header().expect("failed to read header");
-
-        while let Ok(Some(_entry)) = reader.read_entry() {}
-
-        let error = reader.read_entry().expect_err("reader should have errored");
-        assert!(
-            matches!(error, Error::Io(error) if error.kind() == std::io::ErrorKind::UnexpectedEof)
-        );
     }
 
     #[derive(Debug, Clone)]

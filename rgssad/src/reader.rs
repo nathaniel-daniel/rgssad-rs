@@ -90,6 +90,16 @@ impl<R> Reader<R> {
     pub fn into_inner(self) -> R {
         self.reader
     }
+
+    /// Get a reference to the reader.
+    pub fn get_ref(&mut self) -> &R {
+        &self.reader
+    }
+
+    /// Get a mutable reference to the inner reader.
+    pub fn get_mut(&mut self) -> &mut R {
+        &mut self.reader
+    }
 }
 
 impl<R> Reader<R>
@@ -330,5 +340,21 @@ mod test {
         }
 
         assert!(entries.len() == num_skipped_entries);
+    }
+
+    #[test]
+    fn reader_trailing_bytes() {
+        let mut file = std::fs::read(VX_TEST_GAME).expect("failed to open archive");
+        file.push(1);
+        let file = std::io::Cursor::new(file);
+        let mut reader = Reader::new(file);
+        reader.read_header().expect("failed to read header");
+
+        while let Ok(Some(_entry)) = reader.read_entry() {}
+
+        let error = reader.read_entry().expect_err("reader should have errored");
+        assert!(
+            matches!(error, Error::Io(error) if error.kind() == std::io::ErrorKind::UnexpectedEof)
+        );
     }
 }

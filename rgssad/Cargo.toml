@@ -5,3 +5,11 @@ edition = "2021"
 license = "MIT OR Apache-2.0"
 
 [dependencies]
+tokio = { version = "1", features = ["io-util"], optional = true }
+pin-project-lite = { version = "*", optional = true }
+
+[dev-dependencies]
+tokio = { version = "1", features = [ "rt", "macros" ] }
+
+[features]
+tokio = ["dep:tokio", "dep:pin-project-lite"]
