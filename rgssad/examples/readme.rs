@@ -21,7 +21,9 @@ fn main() {
 
     // Write all entries into new archive.
     let mut new_file = Vec::new();
-    let mut writer = rgssad::Writer::new(&mut new_file).expect("failed to create writer");
+    let mut writer = rgssad::Writer::new(&mut new_file)
+        .write_header()
+        .expect("failed to write header");
     for (file_name, file_data) in entries.iter() {
         writer
             .write_entry(

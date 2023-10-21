@@ -4,13 +4,20 @@ use crate::MAGIC;
 use crate::VERSION;
 use std::io::Read;
 use std::io::Write;
+use std::marker::PhantomData;
+
+/// The state for writing a header.
+pub struct HeaderState;
+
+/// The state for writing an entry.
+pub struct EntryState;
 
 /// 8Kb of space,
 /// The same default that [`std::io::BufWriter`] uses.
 const BUFFER_SIZE: usize = 8 * 1024;
 
 /// The archive writer.
-pub struct Writer<W> {
+pub struct Writer<W, S> {
     /// The inner writer.
     writer: W,
 
@@ -25,39 +32,53 @@ pub struct Writer<W> {
     /// Methods that use the scratch space should not call other methods that use the scratch space while it is in use.
     /// The buffer should be cleared by its user, before each use.
     buffer: Vec<u8>,
+
+    /// The current state
+    state: PhantomData<S>,
 }
 
-impl<W> Writer<W> {
+impl<W, S> Writer<W, S> {
     /// Get the inner writer.
     pub fn into_inner(self) -> W {
         self.writer
     }
 }
 
-impl<W> Writer<W>
+impl<W> Writer<W, HeaderState>
 where
     W: Write,
 {
     /// Create an archive writer around a writer.
-    pub fn new(writer: W) -> Result<Self, Error> {
-        let mut writer = Self {
+    pub fn new(writer: W) -> Writer<W, HeaderState> {
+        Writer {
             writer,
             key: DEFAULT_KEY,
             buffer: vec![0; BUFFER_SIZE],
-        };
-        writer.write_header()?;
-
-        Ok(writer)
+            state: PhantomData,
+        }
     }
 
     /// Write the archive header.
-    fn write_header(&mut self) -> Result<(), Error> {
+    ///
+    /// # Returns
+    /// Returns a new [`Writer`] that may be used to write entries.
+    pub fn write_header(mut self) -> Result<Writer<W, EntryState>, Error> {
         self.writer.write_all(MAGIC)?;
         self.writer.write_all(std::slice::from_ref(&VERSION))?;
 
-        Ok(())
+        Ok(Writer {
+            writer: self.writer,
+            key: self.key,
+            buffer: self.buffer,
+            state: PhantomData,
+        })
     }
+}
 
+impl<W> Writer<W, EntryState>
+where
+    W: Write,
+{
     /// Write an encrypted u32.
     fn write_encrypt_u32(&mut self, mut value: u32) -> Result<(), Error> {
         value ^= self.key;
@@ -156,7 +177,12 @@ where
 
         Ok(())
     }
+}
 
+impl<W, S> Writer<W, S>
+where
+    W: Write,
+{
     /// Finish writing.
     ///
     /// This is only a convenience function to call the inner [`Write`] object's [`Write::flush`] method.
