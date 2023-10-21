@@ -39,10 +39,7 @@ impl<R, S> Reader<R, S> {
     }
 }
 
-impl<R> Reader<R, HeaderState>
-where
-    R: Read + Seek,
-{
+impl<R> Reader<R, HeaderState> {
     /// Create a new [`Reader`] with the default encryption key.
     pub fn new(reader: R) -> Reader<R, HeaderState> {
         Reader {
@@ -52,7 +49,12 @@ where
             state: PhantomData,
         }
     }
+}
 
+impl<R> Reader<R, HeaderState>
+where
+    R: Read + Seek,
+{
     /// Read and validate the header.
     ///
     /// # Returns a new [`Reader`] that is ready to read entries.

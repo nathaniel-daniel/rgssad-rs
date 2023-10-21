@@ -44,10 +44,7 @@ impl<W, S> Writer<W, S> {
     }
 }
 
-impl<W> Writer<W, HeaderState>
-where
-    W: Write,
-{
+impl<W> Writer<W, HeaderState> {
     /// Create an archive writer around a writer.
     pub fn new(writer: W) -> Writer<W, HeaderState> {
         Writer {
@@ -57,7 +54,12 @@ where
             state: PhantomData,
         }
     }
+}
 
+impl<W> Writer<W, HeaderState>
+where
+    W: Write,
+{
     /// Write the archive header.
     ///
     /// # Returns
