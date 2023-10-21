@@ -7,7 +7,9 @@ fn main() {
     // You just need any object that implements Read + Seek.
     let file = std::fs::read(ARCHIVE_PATH).expect("failed to open archive");
     let file = std::io::Cursor::new(file);
-    let mut reader = rgssad::Reader::new(file).expect("failed to create reader");
+    let mut reader = rgssad::Reader::new(file)
+        .read_header()
+        .expect("failed to read header");
 
     // Read entire archive into Vec.
     let mut entries = Vec::new();
@@ -19,7 +21,9 @@ fn main() {
 
     // Write all entries into new archive.
     let mut new_file = Vec::new();
-    let mut writer = rgssad::Writer::new(&mut new_file).expect("failed to create writer");
+    let mut writer = rgssad::Writer::new(&mut new_file)
+        .write_header()
+        .expect("failed to write header");
     for (file_name, file_data) in entries.iter() {
         writer
             .write_entry(
