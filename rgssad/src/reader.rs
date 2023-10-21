@@ -255,16 +255,16 @@ where
 #[derive(Debug)]
 pub struct Entry<'a, R> {
     /// The file path.
-    file_name: String,
+    pub(crate) file_name: String,
 
     /// The file size.
-    size: u32,
+    pub(crate) size: u32,
 
     /// The current encryption key.
-    key: u32,
+    pub(crate) key: u32,
 
     /// The inner reader.
-    reader: std::io::Take<&'a mut R>,
+    pub(crate) reader: std::io::Take<&'a mut R>,
 
     /// The inner counter, used for rotating the encryption key.
     ///

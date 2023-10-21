@@ -28,6 +28,10 @@ where
     fn into_inner(self) -> R {
         self.reader
     }
+
+    fn get_mut(&mut self) -> &mut R {
+        &mut self.reader
+    }
 }
 
 impl<R> std::io::Read for ReaderAdapter<R>
@@ -84,6 +88,11 @@ where
     pub fn into_inner(self) -> R {
         self.reader.into_inner().into_inner()
     }
+
+    /// Get a mutable ref to the inner reader
+    pub fn get_mut(&mut self) -> &mut R {
+        self.reader.get_mut().get_mut()
+    }
 }
 
 impl<R> TokioReader<R>
@@ -107,19 +116,73 @@ where
     }
 
     /// Read the next entry.
-    pub fn read_entry(&mut self) -> impl Future<Output = Result<Option<()>, Error>> + '_ {
-        std::future::poll_fn(|cx| {
-            let adapter = self.reader.get_mut();
-            adapter.waker = Some(cx.waker().clone());
+    pub fn read_entry<'a>(
+        &'a mut self,
+    ) -> impl Future<Output = Result<Option<Entry<'a, R>>, Error>> + 'a {
+        ReadEntryFuture { reader: Some(self) }
+    }
+}
 
-            match self.reader.read_entry() {
-                Ok(result) => Poll::Ready(Ok(result.map(|_entry| ()))),
-                Err(Error::Io(error)) if error.kind() == std::io::ErrorKind::WouldBlock => {
-                    Poll::Pending
+struct ReadEntryFuture<'a, R> {
+    reader: Option<&'a mut TokioReader<R>>,
+}
+
+impl<'a, R> Future for ReadEntryFuture<'a, R>
+where
+    R: AsyncBufRead + AsyncSeek + Unpin,
+{
+    type Output = Result<Option<Entry<'a, R>>, Error>;
+
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let reader = self.reader.as_mut().expect("missing reader");
+
+        let adapter = reader.reader.get_mut();
+        adapter.waker = Some(cx.waker().clone());
+
+        match reader.reader.read_entry() {
+            Ok(result) => match result {
+                Some(entry) => {
+                    let file_name = entry.file_name;
+                    let size = entry.size;
+                    let key = entry.key;
+                    let reader = self.reader.take().expect("missing reader");
+
+                    Poll::Ready(Ok(Some(Entry {
+                        file_name,
+                        size,
+                        key,
+                        reader: reader.get_mut(),
+                    })))
                 }
-                Err(error) => Poll::Ready(Err(error)),
+                None => {
+                    return Poll::Ready(Ok(None));
+                }
+            },
+            Err(Error::Io(error)) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                Poll::Pending
             }
-        })
+            Err(error) => Poll::Ready(Err(error)),
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct Entry<'a, R> {
+    file_name: String,
+    size: u32,
+    key: u32,
+    reader: &'a mut R,
+}
+
+impl<R> Entry<'_, R> {
+    /// Get the file name
+    pub fn file_name(&self) -> &str {
+        self.file_name.as_str()
+    }
+
+    /// Get the file size
+    pub fn size(&self) -> u32 {
+        self.size
     }
 }
 
@@ -152,12 +215,9 @@ mod test {
 
         let mut entries = Vec::new();
         while let Some(entry) = reader.read_entry().await.expect("failed to read entry") {
-            /*
-            let mut buffer = Vec::new();
-            entry.read_to_end(&mut buffer).expect("failed to read file");
+            let mut buffer: Vec<u8> = Vec::new();
+            //entry.read_to_end(&mut buffer).expect("failed to read file");
             entries.push((entry.file_name().to_string(), buffer));
-            */
-            entries.push(entry);
         }
 
         assert!(entries.len() == num_skipped_entries);
