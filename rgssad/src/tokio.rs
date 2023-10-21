@@ -1,11 +1,12 @@
 use crate::Error;
 use std::future::Future;
 use std::pin::Pin;
+use std::task::ready;
 use std::task::Context;
 use std::task::Poll;
 use std::task::Waker;
-use tokio::io::AsyncBufRead;
 use tokio::io::AsyncRead;
+use tokio::io::AsyncReadExt;
 use tokio::io::AsyncSeek;
 use tokio::io::ReadBuf;
 
@@ -97,7 +98,7 @@ where
 
 impl<R> TokioReader<R>
 where
-    R: AsyncBufRead + AsyncSeek + std::marker::Unpin,
+    R: AsyncRead + AsyncSeek + std::marker::Unpin,
 {
     /// Read the header.
     pub fn read_header(&mut self) -> impl Future<Output = Result<(), Error>> + '_ {
@@ -129,7 +130,7 @@ struct ReadEntryFuture<'a, R> {
 
 impl<'a, R> Future for ReadEntryFuture<'a, R>
 where
-    R: AsyncBufRead + AsyncSeek + Unpin,
+    R: AsyncRead + AsyncSeek + Unpin,
 {
     type Output = Result<Option<Entry<'a, R>>, Error>;
 
@@ -151,7 +152,8 @@ where
                         file_name,
                         size,
                         key,
-                        reader: reader.get_mut(),
+                        reader: reader.get_mut().take(size.into()),
+                        counter: 0,
                     })))
                 }
                 None => {
@@ -171,7 +173,8 @@ pub struct Entry<'a, R> {
     file_name: String,
     size: u32,
     key: u32,
-    reader: &'a mut R,
+    reader: tokio::io::Take<&'a mut R>,
+    counter: u8,
 }
 
 impl<R> Entry<'_, R> {
@@ -186,12 +189,41 @@ impl<R> Entry<'_, R> {
     }
 }
 
+impl<'a, R> AsyncRead for Entry<'a, R>
+where
+    &'a mut R: AsyncRead,
+{
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<std::io::Result<()>> {
+        let initial_filled_len = buf.filled().len();
+
+        let reader = Pin::new(&mut self.reader);
+        let result = ready!(reader.poll_read(cx, buf));
+
+        let mut this = self.get_mut();
+        let key = &mut this.key;
+        let counter = &mut this.counter;
+
+        crate::reader::decrypt_entry_bytes(
+            &mut buf.filled_mut()[initial_filled_len..],
+            key,
+            counter,
+        );
+
+        Poll::Ready(result)
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
     use crate::test::VX_TEST_GAME;
     use std::io::Seek;
     use std::io::SeekFrom;
+    use tokio::io::AsyncReadExt;
 
     #[tokio::test]
     async fn reader_smoke() {
@@ -214,12 +246,39 @@ mod test {
         reader.read_header().await.expect("failed to read header");
 
         let mut entries = Vec::new();
-        while let Some(entry) = reader.read_entry().await.expect("failed to read entry") {
+        while let Some(mut entry) = reader.read_entry().await.expect("failed to read entry") {
             let mut buffer: Vec<u8> = Vec::new();
-            //entry.read_to_end(&mut buffer).expect("failed to read file");
+            entry
+                .read_to_end(&mut buffer)
+                .await
+                .expect("failed to read file");
+
             entries.push((entry.file_name().to_string(), buffer));
         }
 
         assert!(entries.len() == num_skipped_entries);
+
+        // Validate with sync impl
+        let mut file = reader.into_inner();
+        file.seek(SeekFrom::Start(0))
+            .expect("failed to seek to start");
+        let mut reader = crate::Reader::new(file);
+        reader.read_header().expect("failed to read header");
+
+        let mut entries_sync = Vec::new();
+        while let Some(mut entry) = reader.read_entry().expect("failed to read entry") {
+            use std::io::Read;
+
+            let mut buffer: Vec<u8> = Vec::new();
+            entry.read_to_end(&mut buffer).expect("failed to read file");
+            entries_sync.push((entry.file_name().to_string(), buffer));
+        }
+
+        for ((name_1, entry_1), (name_2, entry_2)) in entries.iter().zip(entries_sync.iter()) {
+            println!("{} vs {}", name_1, name_2);
+            dbg!(entry_1.get(30..33), entry_2.get(30..33));
+            assert!(entry_1.get(..33) == entry_2.get(..33));
+        }
+        assert!(entries == entries_sync);
     }
 }

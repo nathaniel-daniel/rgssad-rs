@@ -294,15 +294,20 @@ where
         let n = self.reader.read(buffer)?;
 
         // Decrypt the encrypted bytes in-place.
-        for byte in buffer[..n].iter_mut() {
-            *byte ^= self.key.to_le_bytes()[usize::from(self.counter)];
-            if self.counter == 3 {
-                self.key = self.key.overflowing_mul(7).0.overflowing_add(3).0;
-            }
-            self.counter = (self.counter + 1) % 4;
-        }
+        decrypt_entry_bytes(&mut buffer[..n], &mut self.key, &mut self.counter);
 
         Ok(n)
+    }
+}
+
+// Decrypt the encrypted entry bytes in-place.
+pub(crate) fn decrypt_entry_bytes(buffer: &mut [u8], key: &mut u32, counter: &mut u8) {
+    for byte in buffer.iter_mut() {
+        *byte ^= key.to_le_bytes()[usize::from(*counter)];
+        if *counter == 3 {
+            *key = key.overflowing_mul(7).0.overflowing_add(3).0;
+        }
+        *counter = (*counter + 1) % 4;
     }
 }
 
