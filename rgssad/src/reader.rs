@@ -56,7 +56,7 @@ where
 
 /// A reader for a "rgssad" archive file
 #[derive(Debug)]
-pub struct Reader<R, S> {
+pub struct Reader<R> {
     /// The underlying reader.
     reader: R,
 
@@ -70,19 +70,12 @@ pub struct Reader<R, S> {
     /// They are even allowed to not completely read all contents of the entry.
     next_entry_position: u64,
 
-    state: S,
+    state: State,
 }
 
-impl<R, S> Reader<R, S> {
-    /// Get the inner reader.
-    pub fn into_inner(self) -> R {
-        self.reader
-    }
-}
-
-impl<R> Reader<R, State> {
+impl<R> Reader<R> {
     /// Create a new [`Reader`] with the default encryption key.
-    pub fn new(reader: R) -> Reader<R, State> {
+    pub fn new(reader: R) -> Reader<R> {
         Reader {
             reader,
             key: DEFAULT_KEY,
@@ -92,9 +85,14 @@ impl<R> Reader<R, State> {
             },
         }
     }
+
+    /// Get the inner reader.
+    pub fn into_inner(self) -> R {
+        self.reader
+    }
 }
 
-impl<R> Reader<R, State>
+impl<R> Reader<R>
 where
     R: Read + Seek,
 {

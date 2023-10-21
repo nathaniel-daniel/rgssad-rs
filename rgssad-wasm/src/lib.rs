@@ -3,14 +3,13 @@ use js_sys::Function;
 use js_sys::JsString;
 use js_sys::Number;
 use js_sys::Uint8Array;
-use rgssad::reader::EntryState;
 use std::io::Read;
 use wasm_bindgen::prelude::*;
 
 /// An Archive Reader
 #[wasm_bindgen]
 pub struct Reader {
-    reader: rgssad::Reader<std::io::Cursor<Vec<u8>>, EntryState>,
+    reader: rgssad::Reader<std::io::Cursor<Vec<u8>>>,
 }
 
 #[wasm_bindgen]
@@ -30,7 +29,8 @@ impl Reader {
             })
             .ok_or_else(|| JsError::new(&format!("Unknown Argument Type \"{value:?}\"")))?;
 
-        let reader = rgssad::Reader::new(std::io::Cursor::new(bytes))
+        let mut reader = rgssad::Reader::new(std::io::Cursor::new(bytes));
+        reader
             .read_header()
             .map_err(|error| JsError::new(&error.to_string()))?;
 

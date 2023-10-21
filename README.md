@@ -13,9 +13,8 @@ fn main() {
     // You just need any object that implements Read + Seek.
     let file = std::fs::read(ARCHIVE_PATH).expect("failed to open archive");
     let file = std::io::Cursor::new(file);
-    let mut reader = rgssad::Reader::new(file)
-        .read_header()
-        .expect("failed to read header");
+    let mut reader = rgssad::Reader::new(file);
+    reader.read_header().expect("failed to read header");
 
     // Read entire archive into Vec.
     let mut entries = Vec::new();
@@ -47,7 +46,6 @@ fn main() {
     // The old archive and new archive are byte-for-byte equivalent.
     assert!(&new_file == file.get_ref());
 }
-
 ```
 
 ## CLI
