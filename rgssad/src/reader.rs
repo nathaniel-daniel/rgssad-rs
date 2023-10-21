@@ -11,7 +11,7 @@ use std::io::SeekFrom;
 
 /// The state for when the Reader must read the header.
 #[derive(Debug)]
-pub enum State {
+enum State {
     // Header States
     ReadMagic {
         buffer: Buffer<[u8; 7]>,
@@ -293,5 +293,42 @@ where
         }
 
         Ok(n)
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crate::test::*;
+
+    #[test]
+    fn reader_smoke() {
+        let file = std::fs::read(VX_TEST_GAME).expect("failed to open archive");
+        let file = std::io::Cursor::new(file);
+        let mut reader = Reader::new(file);
+        reader.read_header().expect("failed to read header");
+
+        // Ensure skipping works.
+        let mut num_skipped_entries = 0;
+        while let Some(_entry) = reader.read_entry().expect("failed to read entry") {
+            num_skipped_entries += 1;
+        }
+
+        // Reset position and recreate reader.
+        let mut file = reader.into_inner();
+        file.seek(SeekFrom::Start(0))
+            .expect("failed to seek to start");
+        let mut reader = Reader::new(file);
+        reader.read_header().expect("failed to read header");
+
+        // Read entire archive into Vec.
+        let mut entries = Vec::new();
+        while let Some(mut entry) = reader.read_entry().expect("failed to read entry") {
+            let mut buffer = Vec::new();
+            entry.read_to_end(&mut buffer).expect("failed to read file");
+            entries.push((entry.file_name().to_string(), buffer));
+        }
+
+        assert!(entries.len() == num_skipped_entries);
     }
 }

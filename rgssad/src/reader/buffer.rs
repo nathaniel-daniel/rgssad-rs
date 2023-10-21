@@ -4,7 +4,7 @@ use std::io::Read;
 ///
 /// Used to track what has been written, a `read_exact` impl with guarantees that future calls make progress.
 #[derive(Debug)]
-pub struct Buffer<B> {
+pub(super) struct Buffer<B> {
     buffer: B,
     position: usize,
 }

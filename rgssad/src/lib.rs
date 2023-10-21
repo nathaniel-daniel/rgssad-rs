@@ -93,38 +93,8 @@ mod test {
     use std::io::SeekFrom;
     use std::rc::Rc;
 
-    const VX_TEST_GAME: &str = "test_data/RPGMakerVXTestGame-Export/RPGMakerVXTestGame/Game.rgss2a";
-
-    #[test]
-    fn reader_smoke() {
-        let file = std::fs::read(VX_TEST_GAME).expect("failed to open archive");
-        let file = std::io::Cursor::new(file);
-        let mut reader = Reader::new(file);
-        reader.read_header().expect("failed to read header");
-
-        // Ensure skipping works.
-        let mut num_skipped_entries = 0;
-        while let Some(_entry) = reader.read_entry().expect("failed to read entry") {
-            num_skipped_entries += 1;
-        }
-
-        // Reset position and recreate reader.
-        let mut file = reader.into_inner();
-        file.seek(SeekFrom::Start(0))
-            .expect("failed to seek to start");
-        let mut reader = Reader::new(file);
-        reader.read_header().expect("failed to read header");
-
-        // Read entire archive into Vec.
-        let mut entries = Vec::new();
-        while let Some(mut entry) = reader.read_entry().expect("failed to read entry") {
-            let mut buffer = Vec::new();
-            entry.read_to_end(&mut buffer).expect("failed to read file");
-            entries.push((entry.file_name().to_string(), buffer));
-        }
-
-        assert!(entries.len() == num_skipped_entries);
-    }
+    pub const VX_TEST_GAME: &str =
+        "test_data/RPGMakerVXTestGame-Export/RPGMakerVXTestGame/Game.rgss2a";
 
     #[test]
     fn reader_writer_smoke() {
@@ -263,9 +233,7 @@ mod test {
 
         loop {
             match reader.read_entry() {
-                Ok(Some(entry)) => {
-                    dbg!(entry.file_name());
-                }
+                Ok(Some(_entry)) => {}
                 Ok(None) => {
                     break;
                 }
