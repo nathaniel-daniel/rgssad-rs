@@ -63,3 +63,9 @@ jobs:
         
       - name: Test
         run: cargo test --all --verbose
+        
+      - name: Build
+        run: cargo build --verbose --features=tokio
+        
+      - name: Test
+        run: cargo test --all --verbose --features=tokio
