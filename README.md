@@ -1,6 +1,12 @@
 # rgssad-rs
 A Rust library for reading and writing RPGMaker XP and RPGMaker VX archives from Rust.
-This currently includes support for ".rgssad" and "rgssa2" files.
+This currently includes support for "rgssad" and "rgss2a" files.
+
+
+Note that there is currently no support for RPGMaker VX Ace "rgss3a" files.
+Through superficially similar, the internal structure of the file format is very different from prior versions.
+Allowing these files to be parsed with the same interface would greatly increase code complexity.
+In the future, support for these files may be added via another `Rgss3aReader` type.
 
 ## Example
 ```rust
@@ -89,6 +95,9 @@ cargo test --features=tokio
 
 ## Try it Online
 You can test an online version of this library at https://nathaniel-daniel.github.io/rgssad-online-viewer/
+
+## File Format
+See [FileFormat](FileFormat.md)
 
 ## License
 Licensed under either of
