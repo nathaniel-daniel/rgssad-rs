@@ -97,7 +97,7 @@ cargo test --features=tokio
 You can test an online version of this library at https://nathaniel-daniel.github.io/rgssad-online-viewer/
 
 ## File Format
-See [FileFormat](FileFormat)
+See [FileFormat](FileFormat.md)
 
 ## License
 Licensed under either of
