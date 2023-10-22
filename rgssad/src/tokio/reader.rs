@@ -21,7 +21,7 @@ where
 {
     fn new(reader: R) -> Self {
         Self {
-            reader: reader,
+            reader,
             waker: None,
         }
     }
@@ -117,14 +117,13 @@ where
     }
 
     /// Read the next entry.
-    pub fn read_entry<'a>(
-        &'a mut self,
-    ) -> impl Future<Output = Result<Option<Entry<'a, R>>, Error>> + 'a {
+    pub fn read_entry(&mut self) -> ReadEntryFuture<'_, R> {
         ReadEntryFuture { reader: Some(self) }
     }
 }
 
-struct ReadEntryFuture<'a, R> {
+/// The future for reading the next [`Entry`].
+pub struct ReadEntryFuture<'a, R> {
     reader: Option<&'a mut TokioReader<R>>,
 }
 
@@ -156,9 +155,7 @@ where
                         counter: 0,
                     })))
                 }
-                None => {
-                    return Poll::Ready(Ok(None));
-                }
+                None => Poll::Ready(Ok(None)),
             },
             Err(Error::Io(error)) if error.kind() == std::io::ErrorKind::WouldBlock => {
                 Poll::Pending
