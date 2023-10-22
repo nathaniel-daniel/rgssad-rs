@@ -101,9 +101,11 @@ mod test {
 
     pub const VX_TEST_GAME: &str =
         "test_data/RPGMakerVXTestGame-Export/RPGMakerVXTestGame/Game.rgss2a";
+    pub const VX_ACE_GAME: &str =
+        "test_data/RPGMakerVXAceGame-Export/RPGMakerVXAceGame/Game.rgss3a";
 
     #[test]
-    fn reader_writer_smoke() {
+    fn vx_reader_writer_smoke() {
         let file = std::fs::read(VX_TEST_GAME).expect("failed to open archive");
         let file = std::io::Cursor::new(file);
         let mut reader = Reader::new(file);
@@ -137,6 +139,22 @@ mod test {
 
         // Ensure archives are byte-for-byte equivalent.
         assert!(&new_file == file.get_ref());
+    }
+
+    #[test]
+    fn vx_ace_reader_writer_smoke() {
+        let file = std::fs::read(VX_ACE_GAME).expect("failed to open archive");
+        let file = std::io::Cursor::new(file);
+        let mut reader = Reader::new(file);
+        reader.read_header().expect("failed to read header");
+
+        // Read entire archive into Vec.
+        let mut entries = Vec::new();
+        while let Some(mut entry) = reader.read_entry().expect("failed to read entry") {
+            let mut buffer = Vec::new();
+            entry.read_to_end(&mut buffer).expect("failed to read file");
+            entries.push((entry.file_name().to_string(), buffer));
+        }
     }
 
     #[derive(Debug, Clone)]

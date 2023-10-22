@@ -4,7 +4,6 @@ use self::buffer::Buffer;
 use crate::Error;
 use crate::DEFAULT_KEY;
 use crate::MAGIC;
-use crate::VERSION;
 use std::io::Read;
 use std::io::Seek;
 use std::io::SeekFrom;
@@ -13,14 +12,27 @@ use std::io::SeekFrom;
 #[derive(Debug)]
 enum State {
     // Header States
-    ReadMagic {
-        buffer: Buffer<[u8; 7]>,
+    ReadMagicAndVersion {
+        buffer: Buffer<[u8; 8]>,
     },
-    ReadVersion,
+    ReadArchiveKey {
+        buffer: Buffer<[u8; 4]>,
+    },
     GetStreamPosition,
 
     // Entry States
     SeekEntry,
+    ReadV3EntryHeader {
+        buffer: Buffer<[u8; 12]>,
+    },
+    ReadV3FileName {
+        offset: u32,
+        size: u32,
+        file_key: u32,
+
+        file_name_size_buffer: Buffer<[u8; 4]>,
+        file_name_buffer: Buffer<Vec<u8>>,
+    },
     ReadFileNameSize {
         buffer: Buffer<[u8; 4]>,
     },
@@ -60,6 +72,12 @@ pub struct Reader<R> {
     /// The underlying reader.
     reader: R,
 
+    /// The archive version.
+    ///
+    /// This may be 1 or 3.
+    /// TODO: Test with a v2 archive.
+    version: u8,
+
     /// The current encryption key.
     key: u32,
 
@@ -78,10 +96,11 @@ impl<R> Reader<R> {
     pub fn new(reader: R) -> Reader<R> {
         Reader {
             reader,
+            version: 1,
             key: DEFAULT_KEY,
             next_entry_position: 0,
-            state: State::ReadMagic {
-                buffer: Buffer::new([0; 7]),
+            state: State::ReadMagicAndVersion {
+                buffer: Buffer::new([0; 8]),
             },
         }
     }
@@ -113,23 +132,36 @@ where
     pub fn read_header(&mut self) -> Result<(), Error> {
         loop {
             match &mut self.state {
-                State::ReadMagic { buffer } => {
+                State::ReadMagicAndVersion { buffer } => {
                     buffer.fill(&mut self.reader)?;
-                    let magic = buffer.buffer_ref();
+
+                    let (magic, version) = buffer.buffer_ref().split_at(7);
+                    let magic: [u8; 7] = magic.try_into().unwrap();
+                    let version = version[0];
+
                     if magic != MAGIC {
-                        return Err(Error::InvalidMagic { magic: *magic });
+                        return Err(Error::InvalidMagic { magic });
                     }
-                    self.state = State::ReadVersion;
-                    continue;
-                }
-                State::ReadVersion => {
-                    // No need to persist, we can't have partial buffer fills since its a single byte.
-                    let mut buffer = Buffer::new([0]);
-                    buffer.fill(&mut self.reader)?;
-                    let version = buffer.buffer_ref()[0];
-                    if version != VERSION {
+                    if version != 1 && version != 3 {
                         return Err(Error::InvalidVersion { version });
                     }
+
+                    self.version = version;
+
+                    if version == 3 {
+                        self.state = State::ReadArchiveKey {
+                            buffer: Buffer::new([0; 4]),
+                        };
+                    } else {
+                        self.state = State::GetStreamPosition;
+                    }
+                }
+                State::ReadArchiveKey { buffer } => {
+                    buffer.fill(&mut self.reader)?;
+
+                    let mut key = u32::from_le_bytes(*buffer.buffer_ref());
+                    key = key.overflowing_mul(9).0.overflowing_add(3).0;
+                    self.key = key;
 
                     self.state = State::GetStreamPosition;
                 }
@@ -160,9 +192,99 @@ where
                     self.reader
                         .seek(SeekFrom::Start(self.next_entry_position))?;
 
-                    self.state = State::ReadFileNameSize {
-                        buffer: Buffer::new([0; 4]),
+                    if self.version == 3 {
+                        self.state = State::ReadV3EntryHeader {
+                            buffer: Buffer::new([0; 12]),
+                        };
+                    } else {
+                        self.state = State::ReadFileNameSize {
+                            buffer: Buffer::new([0; 4]),
+                        };
+                    }
+                }
+                State::ReadV3EntryHeader { buffer } => {
+                    buffer.fill(&mut self.reader)?;
+                    let buffer = buffer.buffer_ref();
+
+                    let (offset, buffer) = buffer.split_at(4);
+                    let offset: [u8; 4] = offset.try_into().unwrap();
+                    let offset = u32::from_le_bytes(offset) ^ self.key;
+
+                    let (size, buffer) = buffer.split_at(4);
+                    let size: [u8; 4] = size.try_into().unwrap();
+                    let size = u32::from_le_bytes(size) ^ self.key;
+
+                    let file_key: [u8; 4] = buffer.try_into().unwrap();
+                    let file_key = u32::from_le_bytes(file_key) ^ self.key;
+
+                    // TODO: Return EOF
+                    assert!(offset != 0);
+
+                    self.state = State::ReadV3FileName {
+                        offset,
+                        size,
+                        file_key,
+
+                        file_name_size_buffer: Buffer::new([0; 4]),
+                        file_name_buffer: Buffer::new(Vec::new()),
                     };
+                }
+                State::ReadV3FileName {
+                    offset,
+                    size,
+                    file_key,
+                    file_name_size_buffer,
+                    file_name_buffer,
+                } => {
+                    if file_name_buffer.buffer_ref().is_empty() {
+                        file_name_size_buffer.fill(&mut self.reader)?;
+
+                        let mut file_name_size =
+                            u32::from_le_bytes(*file_name_size_buffer.buffer_ref());
+                        file_name_size ^= self.key;
+                        let file_name_size = usize::try_from(file_name_size)
+                            .map_err(|error| Error::FileNameTooLong { error })?;
+
+                        file_name_buffer.buffer_mut().resize(file_name_size, 0);
+                    }
+                    file_name_buffer.fill(&mut self.reader)?;
+
+                    let file_name = file_name_buffer.buffer_mut();
+                    let mut counter = 0;
+                    for byte in file_name.iter_mut() {
+                        *byte ^= self.key.to_le_bytes()[counter];
+                        counter = (counter + 1) % 4;
+                    }
+
+                    // I'm fairly certain these are required to be ASCII, but I forget the source.
+                    //
+                    // TODO:
+                    // Link source for ASCII file names, or do not assume ASCII file names.
+                    let file_name = String::from_utf8(std::mem::take(file_name))
+                        .map_err(|error| Error::InvalidFileName { error })?;
+
+                    // Calculate the offset of the next entry:
+                    // size_of(offset) +
+                    // size_of(file_size) +
+                    // size_of(file_key) +
+                    // size_of(file_name_size) +
+                    // size_of(file_name)
+                    //
+                    // We parsed the file size from a u32 so we can unwrap.
+                    self.next_entry_position +=
+                        4 + 4 + 4 + 4 + u64::try_from(file_name.len()).unwrap();
+
+                    let file_size = *size;
+
+                    self.state = State::SeekEntry;
+
+                    return Ok(Some(Entry {
+                        file_name,
+                        size: file_size,
+                        key: self.key,
+                        reader: self.reader.by_ref().take(file_size.into()),
+                        counter: 0,
+                    }));
                 }
                 State::ReadFileNameSize { buffer } => {
                     // We turn EOF errors into None here.
