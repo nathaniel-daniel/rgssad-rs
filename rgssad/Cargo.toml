@@ -3,5 +3,16 @@ name = "rgssad"
 version = "0.0.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
+exclude = [
+    "test_data",
+]
 
 [dependencies]
+tokio = { version = "1", features = [ "io-util" ], optional = true }
+
+[dev-dependencies]
+tokio = { version = "1", features = [ "rt", "macros" ] }
+
+[features]
+# Enable tokio wrappers
+tokio = ["dep:tokio"]

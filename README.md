@@ -13,9 +13,8 @@ fn main() {
     // You just need any object that implements Read + Seek.
     let file = std::fs::read(ARCHIVE_PATH).expect("failed to open archive");
     let file = std::io::Cursor::new(file);
-    let mut reader = rgssad::Reader::new(file)
-        .read_header()
-        .expect("failed to read header");
+    let mut reader = rgssad::Reader::new(file);
+    reader.read_header().expect("failed to read header");
 
     // Read entire archive into Vec.
     let mut entries = Vec::new();
@@ -47,8 +46,15 @@ fn main() {
     // The old archive and new archive are byte-for-byte equivalent.
     assert!(&new_file == file.get_ref());
 }
-
 ```
+
+## Features
+| Name  | Description                                      |
+|-------|--------------------------------------------------|
+| tokio | Enable the tokio wrappers for use in async code. |
+
+## Docs
+Master: https://nathaniel-daniel.github.io/rgssad-rs/rgssad/
 
 ## CLI
 This repository also contains a small CLI to unpack and repack these archives.
@@ -75,6 +81,10 @@ Currently, only `rgssad` has tests; the CLI is not tested.
 Tests may be run with the following command:
 ```bash
 cargo test
+```
+Use the following command to test the tokio wrappers:
+```bash
+cargo test --features=tokio
 ```
 
 ## Try it Online
