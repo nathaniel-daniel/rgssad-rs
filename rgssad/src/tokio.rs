@@ -1,4 +1,4 @@
-mod reader;
+pub mod reader;
 
 pub use self::reader::TokioReader;
 

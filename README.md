@@ -48,6 +48,11 @@ fn main() {
 }
 ```
 
+## Features
+| Name  | Description                                      |
+|-------|--------------------------------------------------|
+| tokio | Enable the tokio wrappers for use in async code. |
+
 ## CLI
 This repository also contains a small CLI to unpack and repack these archives.
 
@@ -73,6 +78,10 @@ Currently, only `rgssad` has tests; the CLI is not tested.
 Tests may be run with the following command:
 ```bash
 cargo test
+```
+Use the following command to test the tokio wrappers:
+```bash
+cargo test --features=tokio
 ```
 
 ## Try it Online

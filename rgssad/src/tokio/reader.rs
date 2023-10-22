@@ -168,6 +168,7 @@ where
     }
 }
 
+/// An archive entry
 #[derive(Debug)]
 pub struct Entry<'a, R> {
     file_name: String,
