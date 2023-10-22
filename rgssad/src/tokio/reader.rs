@@ -15,10 +15,7 @@ struct ReaderAdapter<R> {
     waker: Option<Waker>,
 }
 
-impl<R> ReaderAdapter<R>
-where
-    R: AsyncRead,
-{
+impl<R> ReaderAdapter<R> {
     fn new(reader: R) -> Self {
         Self {
             reader,
@@ -74,10 +71,7 @@ pub struct TokioReader<R> {
     reader: crate::Reader<ReaderAdapter<R>>,
 }
 
-impl<R> TokioReader<R>
-where
-    R: AsyncRead + AsyncSeek,
-{
+impl<R> TokioReader<R> {
     /// Make a new [`TokioReader`].
     pub fn new(reader: R) -> Self {
         Self {
