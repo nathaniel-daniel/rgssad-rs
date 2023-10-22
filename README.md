@@ -53,6 +53,9 @@ fn main() {
 |-------|--------------------------------------------------|
 | tokio | Enable the tokio wrappers for use in async code. |
 
+## Docs
+Master: https://nathaniel-daniel.github.io/rgssad-rs/rgssad/
+
 ## CLI
 This repository also contains a small CLI to unpack and repack these archives.
 
