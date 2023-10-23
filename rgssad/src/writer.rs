@@ -104,7 +104,7 @@ pub enum State {
 const BUFFER_SIZE: usize = 8 * 1024;
 
 /// The archive writer.
-pub struct Writer<W, S> {
+pub struct Writer<W> {
     /// The inner writer.
     writer: W,
 
@@ -121,19 +121,12 @@ pub struct Writer<W, S> {
     buffer: Vec<u8>,
 
     /// The current state
-    state: S,
+    state: State,
 }
 
-impl<W, S> Writer<W, S> {
-    /// Get the inner writer.
-    pub fn into_inner(self) -> W {
-        self.writer
-    }
-}
-
-impl<W> Writer<W, State> {
+impl<W> Writer<W> {
     /// Create an archive writer around a writer.
-    pub fn new(writer: W) -> Writer<W, State> {
+    pub fn new(writer: W) -> Writer<W> {
         Writer {
             writer,
             key: DEFAULT_KEY,
@@ -141,9 +134,14 @@ impl<W> Writer<W, State> {
             state: State::WriteMagic { position: 0 },
         }
     }
+
+    /// Get the inner writer.
+    pub fn into_inner(self) -> W {
+        self.writer
+    }
 }
 
-impl<W> Writer<W, State>
+impl<W> Writer<W>
 where
     W: Write,
 {
@@ -170,26 +168,6 @@ where
         }
     }
 
-    /// Finish writing.
-    ///
-    /// This is only a convenience function to call the inner [`Write`] object's [`Write::flush`] method.
-    pub fn finish(&mut self) -> Result<(), Error> {
-        match &mut self.state {
-            State::WriteEntryStart => {}
-            _ => {
-                return Err(Error::InvalidState);
-            }
-        }
-
-        self.writer.flush()?;
-        Ok(())
-    }
-}
-
-impl<W> Writer<W, State>
-where
-    W: Write,
-{
     /// Write an entry.
     ///
     /// An entry is composed of a name, size, and data.
@@ -316,5 +294,20 @@ where
                 }
             }
         }
+    }
+
+    /// Finish writing.
+    ///
+    /// This is only a convenience function to call the inner [`Write`] object's [`Write::flush`] method.
+    pub fn finish(&mut self) -> Result<(), Error> {
+        match &mut self.state {
+            State::WriteEntryStart => {}
+            _ => {
+                return Err(Error::InvalidState);
+            }
+        }
+
+        self.writer.flush()?;
+        Ok(())
     }
 }
