@@ -97,46 +97,11 @@ mod test {
     use std::io::Read;
     use std::io::Seek;
     use std::io::SeekFrom;
+    use std::io::Write;
     use std::rc::Rc;
 
     pub const VX_TEST_GAME: &str =
         "test_data/RPGMakerVXTestGame-Export/RPGMakerVXTestGame/Game.rgss2a";
-
-    #[test]
-    fn reader_writer_smoke() {
-        let file = std::fs::read(VX_TEST_GAME).expect("failed to open archive");
-        let file = std::io::Cursor::new(file);
-        let mut reader = Reader::new(file);
-        reader.read_header().expect("failed to read header");
-
-        // Read entire archive into Vec.
-        let mut entries = Vec::new();
-        while let Some(mut entry) = reader.read_entry().expect("failed to read entry") {
-            let mut buffer = Vec::new();
-            entry.read_to_end(&mut buffer).expect("failed to read file");
-            entries.push((entry.file_name().to_string(), buffer));
-        }
-
-        // Write all entries into new archive.
-        let mut new_file = Vec::new();
-        let mut writer = Writer::new(&mut new_file);
-        writer.write_header().expect("failed to write header");
-        for (file_name, file_data) in entries.iter() {
-            writer
-                .write_entry(
-                    file_name,
-                    u32::try_from(file_data.len()).expect("file data too large"),
-                    &**file_data,
-                )
-                .expect("failed to write entry");
-        }
-        writer.finish().expect("failed to flush");
-
-        let file = reader.into_inner();
-
-        // Ensure archives are byte-for-byte equivalent.
-        assert!(&new_file == file.get_ref());
-    }
 
     #[derive(Debug, Clone)]
     struct SlowReader<R> {
@@ -201,6 +166,95 @@ mod test {
         }
     }
 
+    #[derive(Debug, Clone)]
+    struct SlowWriter<W> {
+        inner: Rc<RefCell<(W, usize, bool)>>,
+    }
+
+    impl<W> SlowWriter<W> {
+        pub fn new(writer: W) -> Self {
+            Self {
+                inner: Rc::new(RefCell::new((writer, 0, false))),
+            }
+        }
+
+        fn add_fuel(&self, fuel: usize) {
+            let mut inner = self.inner.borrow_mut();
+            inner.1 += fuel;
+        }
+    }
+
+    impl<W> Write for SlowWriter<W>
+    where
+        W: Write,
+    {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            let mut inner = self.inner.borrow_mut();
+            let (writer, fuel, _) = &mut *inner;
+
+            if *fuel == 0 {
+                return Err(std::io::Error::from(std::io::ErrorKind::WouldBlock));
+            }
+
+            let len = std::cmp::min(*fuel, buf.len());
+            let n = writer.write(&buf[..len])?;
+            *fuel -= n;
+
+            Ok(n)
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            let mut inner = self.inner.borrow_mut();
+            let (writer, _, should_flush) = &mut *inner;
+            if *should_flush {
+                writer.flush()?;
+                *should_flush = false;
+
+                Ok(())
+            } else {
+                *should_flush = true;
+
+                Err(std::io::Error::from(std::io::ErrorKind::WouldBlock))
+            }
+        }
+    }
+
+    #[test]
+    fn reader_writer_smoke() {
+        let file = std::fs::read(VX_TEST_GAME).expect("failed to open archive");
+        let file = std::io::Cursor::new(file);
+        let mut reader = Reader::new(file);
+        reader.read_header().expect("failed to read header");
+
+        // Read entire archive into Vec.
+        let mut entries = Vec::new();
+        while let Some(mut entry) = reader.read_entry().expect("failed to read entry") {
+            let mut buffer = Vec::new();
+            entry.read_to_end(&mut buffer).expect("failed to read file");
+            entries.push((entry.file_name().to_string(), buffer));
+        }
+
+        // Write all entries into new archive.
+        let mut new_file = Vec::new();
+        let mut writer = Writer::new(&mut new_file);
+        writer.write_header().expect("failed to write header");
+        for (file_name, file_data) in entries.iter() {
+            writer
+                .write_entry(
+                    file_name,
+                    u32::try_from(file_data.len()).expect("file data too large"),
+                    &**file_data,
+                )
+                .expect("failed to write entry");
+        }
+        writer.finish().expect("failed to flush");
+
+        let file = reader.into_inner();
+
+        // Ensure archives are byte-for-byte equivalent.
+        assert!(&new_file == file.get_ref());
+    }
+
     #[test]
     fn slow_reader() {
         let file = std::fs::read(VX_TEST_GAME).expect("failed to open archive");
@@ -223,9 +277,7 @@ mod test {
         loop {
             match reader.read_entry() {
                 Ok(Some(_entry)) => {}
-                Ok(None) => {
-                    break;
-                }
+                Ok(None) => break,
                 Err(Error::Io(error)) if error.kind() == std::io::ErrorKind::WouldBlock => {}
                 Err(error) => {
                     panic!("Error: {error:?}");
@@ -234,5 +286,67 @@ mod test {
 
             file.add_fuel(1);
         }
+    }
+
+    #[test]
+    fn reader_slow_writer_smoke() {
+        let file = std::fs::read(VX_TEST_GAME).expect("failed to open archive");
+        let file = std::io::Cursor::new(file);
+        let mut reader = Reader::new(file);
+        reader.read_header().expect("failed to read header");
+
+        // Read entire archive into Vec.
+        let mut entries = Vec::new();
+        while let Some(mut entry) = reader.read_entry().expect("failed to read entry") {
+            let mut buffer = Vec::new();
+            entry.read_to_end(&mut buffer).expect("failed to read file");
+            entries.push((entry.file_name().to_string(), buffer));
+        }
+
+        // Write all entries into new archive.
+        let new_file = SlowWriter::new(Vec::<u8>::new());
+        let mut writer = Writer::new(new_file.clone());
+        loop {
+            match writer.write_header() {
+                Ok(()) => break,
+                Err(Error::Io(error)) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                    new_file.add_fuel(1);
+                }
+                Err(error) => {
+                    panic!("failed to write header: {error}");
+                }
+            }
+        }
+
+        for (file_name, file_data) in entries.iter() {
+            let len = u32::try_from(file_data.len()).expect("file data too large");
+            let mut reader = &**file_data;
+
+            loop {
+                match writer.write_entry(file_name, len, &mut reader) {
+                    Ok(()) => break,
+                    Err(Error::Io(error)) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                        new_file.add_fuel(1);
+                    }
+                    Err(error) => {
+                        panic!("failed to write entry: {error}");
+                    }
+                }
+            }
+        }
+        loop {
+            match writer.finish() {
+                Ok(()) => break,
+                Err(Error::Io(error)) if error.kind() == std::io::ErrorKind::WouldBlock => {}
+                Err(error) => {
+                    panic!("failed to flush: {error}");
+                }
+            }
+        }
+
+        let file = reader.into_inner();
+
+        // Ensure archives are byte-for-byte equivalent.
+        assert!(&new_file.inner.borrow().0 == file.get_ref());
     }
 }
