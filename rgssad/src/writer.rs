@@ -1,3 +1,6 @@
+mod buffer;
+
+use self::buffer::Buffer;
 use crate::Error;
 use crate::DEFAULT_KEY;
 use crate::MAGIC;
@@ -5,42 +8,7 @@ use crate::VERSION;
 use std::io::Read;
 use std::io::Write;
 
-#[derive(Debug)]
-pub struct Buffer<B> {
-    buffer: B,
-    position: usize,
-}
-
-impl<B> Buffer<B> {
-    /// Make a new buffer.
-    pub fn new(buffer: B) -> Self {
-        Self {
-            buffer,
-            position: 0,
-        }
-    }
-
-    /// Make a new buffer from parts
-    pub fn from_parts(buffer: B, position: usize) -> Self {
-        Self { buffer, position }
-    }
-}
-
-impl<B> Buffer<B>
-where
-    B: AsRef<[u8]>,
-{
-    /// Write from this buffer to a writer.
-    ///
-    /// This remembers how many bytes were written so that it may be retried on error without data loss.
-    pub fn write<W>(&mut self, writer: W) -> std::io::Result<()>
-    where
-        W: Write,
-    {
-        write_all(writer, self.buffer.as_ref(), &mut self.position)
-    }
-}
-
+/// Write into a buffer, updating position as necessary.
 fn write_all<W>(mut writer: W, buffer: &[u8], position: &mut usize) -> std::io::Result<()>
 where
     W: Write,
@@ -66,12 +34,13 @@ where
     }
 }
 
+/// Rotate the key.
 fn rotate_key(key: u32) -> u32 {
     key.overflowing_mul(7).0.overflowing_add(3).0
 }
 
 #[derive(Debug)]
-pub enum State {
+enum State {
     // Header States
     WriteMagic {
         position: usize,
