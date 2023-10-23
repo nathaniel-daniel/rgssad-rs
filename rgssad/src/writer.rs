@@ -66,11 +66,15 @@ where
     }
 }
 
+fn rotate_key(key: u32) -> u32 {
+    key.overflowing_mul(7).0.overflowing_add(3).0
+}
+
 #[derive(Debug)]
 pub enum State {
     // Header States
     WriteMagic {
-        buffer: Buffer<&'static [u8]>,
+        position: usize,
     },
     WriteVersion,
 
@@ -134,9 +138,7 @@ impl<W> Writer<W, State> {
             writer,
             key: DEFAULT_KEY,
             buffer: vec![0; BUFFER_SIZE],
-            state: State::WriteMagic {
-                buffer: Buffer::new(MAGIC),
-            },
+            state: State::WriteMagic { position: 0 },
         }
     }
 }
@@ -151,8 +153,8 @@ where
     pub fn write_header(&mut self) -> Result<(), Error> {
         loop {
             match &mut self.state {
-                State::WriteMagic { ref mut buffer } => {
-                    buffer.write(&mut self.writer)?;
+                State::WriteMagic { position } => {
+                    write_all(&mut self.writer, MAGIC, position)?;
                     self.state = State::WriteVersion;
                 }
                 State::WriteVersion => {
@@ -206,21 +208,25 @@ where
         loop {
             match &mut self.state {
                 State::WriteEntryStart => {
+                    // Validate file name len.
                     let mut file_name_len = u32::try_from(file_name.len())
                         .map_err(|error| Error::FileNameTooLong { error })?;
 
+                    // Encrypt file name
                     file_name_len ^= self.key;
-                    self.key = self.key.overflowing_mul(7).0.overflowing_add(3).0;
+                    self.key = rotate_key(self.key);
 
+                    // Encrypt file name in buffer.
                     self.buffer.clear();
                     self.buffer.extend(file_name.as_bytes());
                     for byte in self.buffer.iter_mut() {
                         *byte ^= u8::try_from(self.key & 0xFF).unwrap();
-                        self.key = self.key.overflowing_mul(7).0.overflowing_add(3).0;
+                        self.key = rotate_key(self.key);
                     }
 
+                    // Encrypt file size
                     let file_size = file_size ^ self.key;
-                    self.key = self.key.overflowing_mul(7).0.overflowing_add(3).0;
+                    self.key = rotate_key(self.key);
 
                     self.state = State::WriteEntry {
                         file_name_size_buffer: Buffer::new(file_name_len.to_le_bytes()),
@@ -276,7 +282,7 @@ where
                     for byte in self.buffer[..n].iter_mut() {
                         *byte ^= key.to_le_bytes()[usize::from(*counter)];
                         if *counter == 3 {
-                            *key = key.overflowing_mul(7).0.overflowing_add(3).0;
+                            *key = rotate_key(*key);
                         }
                         *counter = (*counter + 1) % 4;
                     }
@@ -297,8 +303,7 @@ where
                     position,
                     buffer_size,
                 } => {
-                    self.writer
-                        .write_all(&self.buffer[*position..*buffer_size])?;
+                    write_all(&mut self.writer, &self.buffer[..*buffer_size], position)?;
 
                     self.state = State::ReadEntryData {
                         counter: *counter,
