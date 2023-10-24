@@ -23,7 +23,8 @@ pub fn exec(options: Options) -> anyhow::Result<()> {
         .write(true)
         .open(&options.output)
         .with_context(|| format!("failed to open \"{}\"", options.output.display()))?;
-    let mut writer = rgssad::Writer::new(&mut output_file).write_header()?;
+    let mut writer = rgssad::Writer::new(&mut output_file);
+    writer.write_header()?;
 
     for entry in WalkDir::new(&options.input).sort_by_file_name() {
         let entry = entry?;
