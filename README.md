@@ -99,6 +99,14 @@ You can test an online version of this library at https://nathaniel-daniel.githu
 ## File Format
 See [FileFormat](FileFormat.md)
 
+## Related Projects
+The following sources may be helpful to confirm the correctness of this implementation.
+ * https://github.com/Kriper1111/YARE-py
+ * https://github.com/uuksu/RPGMakerDecrypter
+ * https://github.com/KatyushaScarlet/RGSS-Extractor
+ * https://aluigi.altervista.org/quickbms.htm
+ * https://github.com/dogtopus/rgssad-fuse
+
 ## License
 Licensed under either of
  * Apache License, Version 2.0
