@@ -12,6 +12,8 @@ pub mod tokio;
 pub use self::reader::Reader;
 #[cfg(feature = "tokio")]
 pub use self::tokio::TokioReader;
+#[cfg(feature = "tokio")]
+pub use self::tokio::TokioWriter;
 pub use self::writer::Writer;
 
 /// The magic number

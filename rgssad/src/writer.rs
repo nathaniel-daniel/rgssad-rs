@@ -108,6 +108,11 @@ impl<W> Writer<W> {
     pub fn into_inner(self) -> W {
         self.writer
     }
+
+    /// Get a mutable ref to the inner writer.
+    pub fn get_mut(&mut self) -> &mut W {
+        &mut self.writer
+    }
 }
 
 impl<W> Writer<W>
