@@ -320,6 +320,7 @@ mod test {
 
         for (file_name, file_data) in entries.iter() {
             let len = u32::try_from(file_data.len()).expect("file data too large");
+            // We need to pass the same reader, so that updates to its position are persisted.
             let mut reader = &**file_data;
 
             loop {

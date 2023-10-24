@@ -1,4 +1,6 @@
+mod adapters;
 pub mod reader;
+use self::adapters::AsyncRead2Read;
 
 pub use self::reader::TokioReader;
 

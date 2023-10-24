@@ -1,81 +1,25 @@
+use super::AsyncRead2Read;
 use crate::Error;
 use std::future::Future;
 use std::pin::Pin;
 use std::task::ready;
 use std::task::Context;
 use std::task::Poll;
-use std::task::Waker;
 use tokio::io::AsyncRead;
 use tokio::io::AsyncReadExt;
 use tokio::io::AsyncSeek;
 use tokio::io::ReadBuf;
 
-struct ReaderAdapter<R> {
-    reader: R,
-    waker: Option<Waker>,
-}
-
-impl<R> ReaderAdapter<R> {
-    fn new(reader: R) -> Self {
-        Self {
-            reader,
-            waker: None,
-        }
-    }
-
-    fn into_inner(self) -> R {
-        self.reader
-    }
-
-    fn get_mut(&mut self) -> &mut R {
-        &mut self.reader
-    }
-}
-
-impl<R> std::io::Read for ReaderAdapter<R>
-where
-    R: AsyncRead + Unpin,
-{
-    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-        let reader = Pin::new(&mut self.reader);
-        let waker = self.waker.as_ref().expect("missing waker");
-        let mut cx = Context::from_waker(waker);
-
-        let mut buf = ReadBuf::new(buf);
-        match reader.poll_read(&mut cx, &mut buf) {
-            Poll::Ready(result) => result.map(|()| buf.filled().len()),
-            Poll::Pending => Err(std::io::Error::from(std::io::ErrorKind::WouldBlock)),
-        }
-    }
-}
-
-impl<R> std::io::Seek for ReaderAdapter<R>
-where
-    R: AsyncRead + AsyncSeek + Unpin,
-{
-    fn seek(&mut self, pos: std::io::SeekFrom) -> std::io::Result<u64> {
-        let mut reader = Pin::new(&mut self.reader);
-        let waker = self.waker.as_ref().expect("missing waker");
-        let mut cx = Context::from_waker(waker);
-
-        reader.as_mut().start_seek(pos)?;
-        match reader.poll_complete(&mut cx) {
-            Poll::Ready(result) => result,
-            Poll::Pending => Err(std::io::Error::from(std::io::ErrorKind::WouldBlock)),
-        }
-    }
-}
-
 /// A tokio wrapper for an archive reader.
 pub struct TokioReader<R> {
-    reader: crate::Reader<ReaderAdapter<R>>,
+    reader: crate::Reader<AsyncRead2Read<R>>,
 }
 
 impl<R> TokioReader<R> {
     /// Make a new [`TokioReader`].
     pub fn new(reader: R) -> Self {
         Self {
-            reader: crate::Reader::new(ReaderAdapter::new(reader)),
+            reader: crate::Reader::new(AsyncRead2Read::new(reader)),
         }
     }
 
@@ -98,7 +42,7 @@ where
     pub fn read_header(&mut self) -> impl Future<Output = Result<(), Error>> + '_ {
         std::future::poll_fn(|cx| {
             let adapter = self.reader.get_mut();
-            adapter.waker = Some(cx.waker().clone());
+            adapter.set_waker(cx.waker());
 
             match self.reader.read_header() {
                 Ok(()) => Poll::Ready(Ok(())),
@@ -131,7 +75,7 @@ where
         let reader = self.reader.as_mut().expect("missing reader");
 
         let adapter = reader.reader.get_mut();
-        adapter.waker = Some(cx.waker().clone());
+        adapter.set_waker(cx.waker());
 
         match reader.reader.read_entry() {
             Ok(result) => match result {
