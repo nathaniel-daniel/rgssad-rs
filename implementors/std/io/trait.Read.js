@@ -1,0 +1,3 @@
+(function() {var implementors = {
+"rgssad":[["impl&lt;R&gt; <a class=\"trait\" href=\"https://doc.rust-lang.org/1.74.1/std/io/trait.Read.html\" title=\"trait std::io::Read\">Read</a> for <a class=\"struct\" href=\"rgssad/reader/struct.Entry.html\" title=\"struct rgssad::reader::Entry\">Entry</a>&lt;'_, R&gt;<span class=\"where fmt-newline\">where\n    R: <a class=\"trait\" href=\"https://doc.rust-lang.org/1.74.1/std/io/trait.Read.html\" title=\"trait std::io::Read\">Read</a>,</span>"]]
+};if (window.register_implementors) {window.register_implementors(implementors);} else {window.pending_implementors = implementors;}})()

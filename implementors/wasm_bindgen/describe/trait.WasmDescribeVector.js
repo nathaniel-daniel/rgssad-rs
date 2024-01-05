@@ -1,0 +1,3 @@
+(function() {var implementors = {
+"rgssad_wasm":[["impl WasmDescribeVector for <a class=\"struct\" href=\"rgssad_wasm/struct.Reader.html\" title=\"struct rgssad_wasm::Reader\">Reader</a>"],["impl WasmDescribeVector for <a class=\"struct\" href=\"rgssad_wasm/struct.ReaderEntry.html\" title=\"struct rgssad_wasm::ReaderEntry\">ReaderEntry</a>"]]
+};if (window.register_implementors) {window.register_implementors(implementors);} else {window.pending_implementors = implementors;}})()
