@@ -8,4 +8,4 @@ license = "MIT OR Apache-2.0"
 anyhow = "1.0.80"
 argh = "0.1.12"
 rgssad = { path = "../rgssad" }
-walkdir = "2.4.0"
+walkdir = "2.5.0"
