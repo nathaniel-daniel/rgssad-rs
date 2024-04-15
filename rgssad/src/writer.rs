@@ -73,6 +73,7 @@ enum State {
 const BUFFER_SIZE: usize = 8 * 1024;
 
 /// The archive writer.
+#[derive(Debug)]
 pub struct Writer<W> {
     /// The inner writer.
     writer: W,
