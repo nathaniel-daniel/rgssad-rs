@@ -1,0 +1,1 @@
+window.ALL_CRATES = ["rgssad","rgssad_cli","rgssad_wasm"];
