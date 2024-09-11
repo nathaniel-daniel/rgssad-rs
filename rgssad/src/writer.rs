@@ -127,7 +127,7 @@ where
         loop {
             match &mut self.state {
                 State::WriteMagic { position } => {
-                    write_all(&mut self.writer, MAGIC, position)?;
+                    write_all(&mut self.writer, &MAGIC, position)?;
                     self.state = State::WriteVersion;
                 }
                 State::WriteVersion => {

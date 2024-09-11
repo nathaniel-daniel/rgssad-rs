@@ -2,6 +2,8 @@
 
 /// The archive reader.
 pub mod reader;
+/// sans-io state machines for reading and writing.
+pub mod sans_io;
 /// The archive writer.
 pub mod writer;
 
@@ -16,8 +18,10 @@ pub use self::tokio::TokioReader;
 pub use self::tokio::TokioWriter;
 pub use self::writer::Writer;
 
+/// The len of the magic number.
+const MAGIC_LEN: usize = 7;
 /// The magic number
-const MAGIC: &[u8] = b"RGSSAD\0";
+const MAGIC: [u8; MAGIC_LEN] = *b"RGSSAD\0";
 /// The file version
 const VERSION: u8 = 1;
 /// The default encryption key
@@ -55,6 +59,9 @@ pub enum Error {
 
     /// The file data was too long
     FileDataTooLong,
+
+    /// There was an error with the sans-io state machine.
+    SansIo(self::sans_io::Error),
 }
 
 impl std::fmt::Display for Error {
@@ -71,6 +78,7 @@ impl std::fmt::Display for Error {
                 "file data size mismatch, expected {expected} but got {actual}"
             ),
             Self::FileDataTooLong => write!(f, "file data too long"),
+            Self::SansIo(error) => error.fmt(f),
         }
     }
 }
@@ -81,6 +89,7 @@ impl std::error::Error for Error {
             Self::Io(error) => Some(error),
             Self::FileNameTooLong { error } => Some(error),
             Self::InvalidFileName { error } => Some(error),
+            Self::SansIo(error) => error.source(),
             _ => None,
         }
     }
@@ -89,6 +98,12 @@ impl std::error::Error for Error {
 impl From<std::io::Error> for Error {
     fn from(error: std::io::Error) -> Self {
         Self::Io(error)
+    }
+}
+
+impl From<self::sans_io::Error> for Error {
+    fn from(error: self::sans_io::Error) -> Self {
+        Self::SansIo(error)
     }
 }
 

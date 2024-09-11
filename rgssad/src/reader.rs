@@ -1,10 +1,9 @@
 mod buffer;
 
 use self::buffer::Buffer;
+use crate::sans_io::SansIoAction;
 use crate::Error;
 use crate::DEFAULT_KEY;
-use crate::MAGIC;
-use crate::VERSION;
 use std::io::Read;
 use std::io::Seek;
 use std::io::SeekFrom;
@@ -13,11 +12,7 @@ use std::io::SeekFrom;
 #[derive(Debug)]
 enum State {
     // Header States
-    ReadMagic {
-        buffer: Buffer<[u8; 7]>,
-    },
-    ReadVersion,
-    GetStreamPosition,
+    ReadHeader,
 
     // Entry States
     SeekEntry,
@@ -71,6 +66,8 @@ pub struct Reader<R> {
     next_entry_position: u64,
 
     state: State,
+
+    state_machine: crate::sans_io::Reader,
 }
 
 impl<R> Reader<R> {
@@ -80,9 +77,8 @@ impl<R> Reader<R> {
             reader,
             key: DEFAULT_KEY,
             next_entry_position: 0,
-            state: State::ReadMagic {
-                buffer: Buffer::new([0; 7]),
-            },
+            state: State::ReadHeader,
+            state_machine: crate::sans_io::Reader::new(),
         }
     }
 
@@ -112,37 +108,38 @@ where
     /// This function is a NOP if the header has already been read.
     pub fn read_header(&mut self) -> Result<(), Error> {
         loop {
-            match &mut self.state {
-                State::ReadMagic { buffer } => {
-                    buffer.fill(&mut self.reader)?;
-                    let magic = buffer.buffer_ref();
-                    if magic != MAGIC {
-                        return Err(Error::InvalidMagic { magic: *magic });
-                    }
-                    self.state = State::ReadVersion;
-                    continue;
-                }
-                State::ReadVersion => {
-                    // No need to persist, we can't have partial buffer fills since its a single byte.
-                    let mut buffer = Buffer::new([0]);
-                    buffer.fill(&mut self.reader)?;
-                    let version = buffer.buffer_ref()[0];
-                    if version != VERSION {
-                        return Err(Error::InvalidVersion { version });
+            match self.state_machine.step_read_header()? {
+                SansIoAction::Read(mut num) => loop {
+                    let space = self.state_machine.space();
+
+                    if num == 0 {
+                        break;
                     }
 
-                    self.state = State::GetStreamPosition;
-                }
-                State::GetStreamPosition => {
+                    match self.reader.read(&mut space[..num]) {
+                        Ok(0) => {
+                            return Err(Error::Io(std::io::Error::new(
+                                std::io::ErrorKind::UnexpectedEof,
+                                "failed to fill whole buffer",
+                            )));
+                        }
+                        Ok(n) => {
+                            self.state_machine.fill(n);
+                            num -= n;
+                        }
+                        Err(ref error) if error.kind() == std::io::ErrorKind::Interrupted => {}
+                        Err(error) => {
+                            return Err(Error::Io(error));
+                        }
+                    }
+                },
+                SansIoAction::Seek(_) => unreachable!(),
+                SansIoAction::Done(()) => {
                     self.next_entry_position = self.reader.stream_position()?;
 
                     // TODO: We can just jump to the read file name state since we haven't handed out an entry yet.
                     self.state = State::SeekEntry;
 
-                    return Ok(());
-                }
-                _ => {
-                    // We already read the header somehow.
                     return Ok(());
                 }
             }
