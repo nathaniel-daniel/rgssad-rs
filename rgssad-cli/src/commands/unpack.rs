@@ -41,28 +41,28 @@ pub fn exec(options: Options) -> anyhow::Result<()> {
     let output = std::fs::canonicalize(&options.output)?;
 
     let mut last_error = Ok(());
-    while let Some(mut entry) = reader.read_entry()? {
-        println!("Extracting \"{}\"", entry.file_name());
+    while let Some(mut file) = reader.read_file()? {
+        println!("Extracting \"{}\"", file.name());
 
         // Sanitize and build path
-        let out_path = match construct_out_path(&output, entry.file_name().as_ref()) {
+        let out_path = match construct_out_path(&output, file.name().as_ref()) {
             Ok(out_path) => out_path,
             Err(error) => {
                 eprintln!("  {error}, skipping");
-                last_error = Err(error)
-                    .with_context(|| format!("failed to sanitize \"{}\"", entry.file_name()));
+                last_error =
+                    Err(error).with_context(|| format!("failed to sanitize \"{}\"", file.name()));
                 continue;
             }
         };
 
-        match extract_file(&mut entry, &out_path) {
+        match extract_file(&mut file, &out_path) {
             Ok(()) => {}
             Err(error) => {
                 eprintln!("  {error}, skipping");
                 last_error = Err(error).with_context(|| {
                     format!(
                         "failed to extract \"{}\" to \"{}\"",
-                        entry.file_name(),
+                        file.name(),
                         out_path.display()
                     )
                 });

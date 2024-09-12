@@ -11,25 +11,25 @@ fn main() {
     reader.read_header().expect("failed to read header");
 
     // Read entire archive into Vec.
-    let mut entries = Vec::new();
-    while let Some(mut entry) = reader.read_entry().expect("failed to read entry") {
+    let mut files = Vec::new();
+    while let Some(mut file) = reader.read_file().expect("failed to read file") {
         let mut buffer = Vec::new();
-        entry.read_to_end(&mut buffer).expect("failed to read file");
-        entries.push((entry.file_name().to_string(), buffer));
+        file.read_to_end(&mut buffer).expect("failed to read file");
+        files.push((file.name().to_string(), buffer));
     }
 
-    // Write all entries into new archive.
+    // Write all files into new archive.
     let mut new_file = Vec::new();
     let mut writer = rgssad::Writer::new(&mut new_file);
     writer.write_header().expect("failed to write header");
-    for (file_name, file_data) in entries.iter() {
+    for (file_name, file_data) in files.iter() {
         writer
             .write_entry(
                 file_name,
                 u32::try_from(file_data.len()).expect("file data too large"),
                 &**file_data,
             )
-            .expect("failed to write entry");
+            .expect("failed to write file");
     }
     writer.finish().expect("failed to finish");
 

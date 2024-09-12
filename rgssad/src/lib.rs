@@ -2,6 +2,8 @@
 
 /// The archive reader.
 pub mod reader;
+/// sans-io state machines for reading and writing.
+pub mod sans_io;
 /// The archive writer.
 pub mod writer;
 
@@ -16,12 +18,16 @@ pub use self::tokio::TokioReader;
 pub use self::tokio::TokioWriter;
 pub use self::writer::Writer;
 
+/// The len of the magic number.
+const MAGIC_LEN: usize = 7;
 /// The magic number
-const MAGIC: &[u8] = b"RGSSAD\0";
+const MAGIC: [u8; MAGIC_LEN] = *b"RGSSAD\0";
 /// The file version
 const VERSION: u8 = 1;
 /// The default encryption key
 const DEFAULT_KEY: u32 = 0xDEADCAFE;
+/// The maximum file name len
+const MAX_FILE_NAME_LEN: u32 = 4096;
 
 /// The library error type
 #[derive(Debug)]
@@ -32,22 +38,10 @@ pub enum Error {
     /// Invalid internal state, user error
     InvalidState,
 
-    /// Invalid magic number
-    InvalidMagic { magic: [u8; 7] },
-
-    /// Invalid version
-    InvalidVersion { version: u8 },
-
     /// The file name was too long
     FileNameTooLong {
         /// The error
         error: std::num::TryFromIntError,
-    },
-
-    /// A file name was invalid.
-    InvalidFileName {
-        /// The error
-        error: std::string::FromUtf8Error,
     },
 
     /// The provided file size does not match the file data's size.
@@ -55,6 +49,9 @@ pub enum Error {
 
     /// The file data was too long
     FileDataTooLong,
+
+    /// There was an error with the sans-io state machine.
+    SansIo(self::sans_io::Error),
 }
 
 impl std::fmt::Display for Error {
@@ -62,15 +59,15 @@ impl std::fmt::Display for Error {
         match self {
             Self::Io(_error) => write!(f, "an I/O error occured"),
             Self::InvalidState => write!(f, "user error, invalid internal state"),
-            Self::InvalidMagic { magic } => write!(f, "magic number \"{magic:?}\" is invalid"),
-            Self::InvalidVersion { version } => write!(f, "version \"{version}\" is invalid"),
+
             Self::FileNameTooLong { .. } => write!(f, "the file name is too long"),
-            Self::InvalidFileName { .. } => write!(f, "invalid file name"),
+
             Self::FileDataSizeMismatch { actual, expected } => write!(
                 f,
                 "file data size mismatch, expected {expected} but got {actual}"
             ),
             Self::FileDataTooLong => write!(f, "file data too long"),
+            Self::SansIo(error) => error.fmt(f),
         }
     }
 }
@@ -80,7 +77,8 @@ impl std::error::Error for Error {
         match self {
             Self::Io(error) => Some(error),
             Self::FileNameTooLong { error } => Some(error),
-            Self::InvalidFileName { error } => Some(error),
+
+            Self::SansIo(error) => error.source(),
             _ => None,
         }
     }
@@ -89,6 +87,12 @@ impl std::error::Error for Error {
 impl From<std::io::Error> for Error {
     fn from(error: std::io::Error) -> Self {
         Self::Io(error)
+    }
+}
+
+impl From<self::sans_io::Error> for Error {
+    fn from(error: self::sans_io::Error) -> Self {
+        Self::SansIo(error)
     }
 }
 
@@ -228,26 +232,26 @@ mod test {
         let mut reader = Reader::new(file);
         reader.read_header().expect("failed to read header");
 
-        // Read entire archive into Vec.
-        let mut entries = Vec::new();
-        while let Some(mut entry) = reader.read_entry().expect("failed to read entry") {
+        // Read entire archive into a Vec.
+        let mut files = Vec::new();
+        while let Some(mut file) = reader.read_file().expect("failed to read file") {
             let mut buffer = Vec::new();
-            entry.read_to_end(&mut buffer).expect("failed to read file");
-            entries.push((entry.file_name().to_string(), buffer));
+            file.read_to_end(&mut buffer).expect("failed to read file");
+            files.push((file.name().to_string(), buffer));
         }
 
-        // Write all entries into new archive.
+        // Write all files into a new archive.
         let mut new_file = Vec::new();
         let mut writer = Writer::new(&mut new_file);
         writer.write_header().expect("failed to write header");
-        for (file_name, file_data) in entries.iter() {
+        for (file_name, file_data) in files.iter() {
             writer
                 .write_entry(
                     file_name,
                     u32::try_from(file_data.len()).expect("file data too large"),
                     &**file_data,
                 )
-                .expect("failed to write entry");
+                .expect("failed to write file");
         }
         writer.finish().expect("failed to flush");
 
@@ -277,8 +281,8 @@ mod test {
         }
 
         loop {
-            match reader.read_entry() {
-                Ok(Some(_entry)) => {}
+            match reader.read_file() {
+                Ok(Some(_file)) => {}
                 Ok(None) => break,
                 Err(Error::Io(error)) if error.kind() == std::io::ErrorKind::WouldBlock => {}
                 Err(error) => {
@@ -298,14 +302,14 @@ mod test {
         reader.read_header().expect("failed to read header");
 
         // Read entire archive into Vec.
-        let mut entries = Vec::new();
-        while let Some(mut entry) = reader.read_entry().expect("failed to read entry") {
+        let mut files = Vec::new();
+        while let Some(mut file) = reader.read_file().expect("failed to read file") {
             let mut buffer = Vec::new();
-            entry.read_to_end(&mut buffer).expect("failed to read file");
-            entries.push((entry.file_name().to_string(), buffer));
+            file.read_to_end(&mut buffer).expect("failed to read file");
+            files.push((file.name().to_string(), buffer));
         }
 
-        // Write all entries into new archive.
+        // Write all files into new archive.
         let new_file = SlowWriter::new(Vec::<u8>::new());
         let mut writer = Writer::new(new_file.clone());
         loop {
@@ -320,7 +324,7 @@ mod test {
             }
         }
 
-        for (file_name, file_data) in entries.iter() {
+        for (file_name, file_data) in files.iter() {
             let len = u32::try_from(file_data.len()).expect("file data too large");
             // We need to pass the same reader, so that updates to its position are persisted.
             let mut reader = &**file_data;
@@ -332,7 +336,7 @@ mod test {
                         new_file.add_fuel(1);
                     }
                     Err(error) => {
-                        panic!("failed to write entry: {error}");
+                        panic!("failed to write file: {error}");
                     }
                 }
             }
