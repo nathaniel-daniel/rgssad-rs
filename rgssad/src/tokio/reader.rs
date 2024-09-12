@@ -57,7 +57,7 @@ where
     }
 
     /// Read the next file.
-    pub async fn read_file<'a>(&'a mut self) -> Result<Option<Entry<'a, R>>, Error> {
+    pub async fn read_file(&mut self) -> Result<Option<File<'_, R>>, Error> {
         loop {
             match self.state_machine.step_read_file_header()? {
                 Action::Read(size) => {
@@ -82,7 +82,7 @@ where
                 }
                 Action::Done(file_header) => {
                     let size = file_header.size;
-                    return Ok(Some(Entry {
+                    return Ok(Some(File {
                         name: file_header.name,
                         size,
                         reader: &mut self.reader,
@@ -97,7 +97,7 @@ where
 pin_project_lite::pin_project! {
     /// An archive file
     #[derive(Debug)]
-    pub struct Entry<'a, R> {
+    pub struct File<'a, R> {
         name: String,
         size: u32,
 
@@ -107,7 +107,7 @@ pin_project_lite::pin_project! {
     }
 }
 
-impl<R> Entry<'_, R> {
+impl<R> File<'_, R> {
     /// Get the file path
     pub fn name(&self) -> &str {
         self.name.as_str()
@@ -119,7 +119,7 @@ impl<R> Entry<'_, R> {
     }
 }
 
-impl<'a, R> AsyncRead for Entry<'a, R>
+impl<'a, R> AsyncRead for File<'a, R>
 where
     &'a mut R: AsyncRead,
 {
