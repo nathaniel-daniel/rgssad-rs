@@ -26,6 +26,8 @@ const MAGIC: [u8; MAGIC_LEN] = *b"RGSSAD\0";
 const VERSION: u8 = 1;
 /// The default encryption key
 const DEFAULT_KEY: u32 = 0xDEADCAFE;
+/// The maximum file name len
+const MAX_FILE_NAME_LEN: u32 = 4096;
 
 /// The library error type
 #[derive(Debug)]
