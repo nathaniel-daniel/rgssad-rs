@@ -44,8 +44,8 @@ impl Reader {
     /// This function gets the file name and size as arguments.
     /// If this function returns true, it is skipped.
     /// If this function is absent, the file is not skipped.
-    #[wasm_bindgen(js_name = "readEntry")]
-    pub fn read_entry(&mut self, skip: Option<Function>) -> Result<Option<ReaderEntry>, JsValue> {
+    #[wasm_bindgen(js_name = "readFile")]
+    pub fn read_file(&mut self, skip: Option<Function>) -> Result<Option<File>, JsValue> {
         loop {
             let file = self
                 .reader
@@ -71,20 +71,21 @@ impl Reader {
                 continue;
             }
 
-            let mut buffer = Vec::with_capacity(file.size() as usize);
+            // Wasm16 does not exist.
+            let mut buffer = Vec::with_capacity(usize::try_from(file.size()).unwrap());
             file.read_to_end(&mut buffer)
                 .map_err(|error| JsError::new(&error.to_string()))?;
             let data = Uint8Array::new_with_length(file.size());
             data.copy_from(&buffer);
 
-            return Ok(Some(ReaderEntry { file_name, data }));
+            return Ok(Some(File { file_name, data }));
         }
     }
 }
 
 /// A file from a [`Reader`].
 #[wasm_bindgen]
-pub struct ReaderEntry {
+pub struct File {
     /// The file name
     file_name: JsString,
 
@@ -93,10 +94,10 @@ pub struct ReaderEntry {
 }
 
 #[wasm_bindgen]
-impl ReaderEntry {
+impl File {
     /// Get the file name.
-    #[wasm_bindgen(js_name = "fileName", getter)]
-    pub fn file_name(&self) -> JsString {
+    #[wasm_bindgen(getter)]
+    pub fn name(&self) -> JsString {
         self.file_name.clone()
     }
 
