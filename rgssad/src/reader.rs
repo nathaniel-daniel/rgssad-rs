@@ -1,4 +1,4 @@
-use crate::sans_io::Action;
+use crate::sans_io::ReaderAction;
 use crate::Error;
 use std::io::Read;
 use std::io::Seek;
@@ -47,13 +47,13 @@ where
     pub fn read_header(&mut self) -> Result<(), Error> {
         loop {
             match self.state_machine.step_read_header()? {
-                Action::Read(size) => {
+                ReaderAction::Read(size) => {
                     let space = self.state_machine.space();
                     let n = self.reader.read(&mut space[..size])?;
                     self.state_machine.fill(n);
                 }
-                Action::Done(()) => return Ok(()),
-                Action::Seek(_) => unreachable!(),
+                ReaderAction::Done(()) => return Ok(()),
+                ReaderAction::Seek(_) => unreachable!(),
             }
         }
     }
@@ -62,7 +62,7 @@ where
     pub fn read_file(&mut self) -> Result<Option<File<R>>, Error> {
         loop {
             match self.state_machine.step_read_file_header()? {
-                Action::Read(size) => {
+                ReaderAction::Read(size) => {
                     let space = self.state_machine.space();
                     let n = self.reader.read(&mut space[..size])?;
                     self.state_machine.fill(n);
@@ -78,11 +78,11 @@ where
                         }
                     }
                 }
-                Action::Seek(position) => {
+                ReaderAction::Seek(position) => {
                     self.reader.seek(SeekFrom::Start(position))?;
                     self.state_machine.finish_seek();
                 }
-                Action::Done(file_header) => {
+                ReaderAction::Done(file_header) => {
                     let size = file_header.size;
                     return Ok(Some(File {
                         name: file_header.name,
@@ -133,7 +133,7 @@ where
                 .map_err(|error| std::io::Error::new(std::io::ErrorKind::Other, error))?;
 
             match action {
-                Action::Read(size) => {
+                ReaderAction::Read(size) => {
                     let space = self.state_machine.space();
 
                     // Even if we read shorter than requested,
@@ -142,8 +142,8 @@ where
                     let n = self.reader.read(&mut space[..size])?;
                     self.state_machine.fill(n);
                 }
-                Action::Seek(_) => unreachable!(),
-                Action::Done(n) => return Ok(n),
+                ReaderAction::Seek(_) => unreachable!(),
+                ReaderAction::Done(n) => return Ok(n),
             }
         }
     }

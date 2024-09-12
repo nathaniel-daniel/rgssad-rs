@@ -1,4 +1,4 @@
-use crate::sans_io::Action;
+use crate::sans_io::ReaderAction;
 use crate::Error;
 use std::pin::Pin;
 use std::task::ready;
@@ -45,13 +45,13 @@ where
     pub async fn read_header(&mut self) -> Result<(), Error> {
         loop {
             match self.state_machine.step_read_header()? {
-                Action::Read(size) => {
+                ReaderAction::Read(size) => {
                     let space = self.state_machine.space();
                     let n = self.reader.read(&mut space[..size]).await?;
                     self.state_machine.fill(n);
                 }
-                Action::Done(()) => return Ok(()),
-                Action::Seek(_) => unreachable!(),
+                ReaderAction::Done(()) => return Ok(()),
+                ReaderAction::Seek(_) => unreachable!(),
             }
         }
     }
@@ -60,7 +60,7 @@ where
     pub async fn read_file(&mut self) -> Result<Option<File<'_, R>>, Error> {
         loop {
             match self.state_machine.step_read_file_header()? {
-                Action::Read(size) => {
+                ReaderAction::Read(size) => {
                     let space = self.state_machine.space();
                     let n = self.reader.read(&mut space[..size]).await?;
                     self.state_machine.fill(n);
@@ -76,11 +76,11 @@ where
                         }
                     }
                 }
-                Action::Seek(position) => {
+                ReaderAction::Seek(position) => {
                     self.reader.seek(SeekFrom::Start(position)).await?;
                     self.state_machine.finish_seek();
                 }
-                Action::Done(file_header) => {
+                ReaderAction::Done(file_header) => {
                     let size = file_header.size;
                     return Ok(Some(File {
                         name: file_header.name,
@@ -137,7 +137,7 @@ where
                 .map_err(|error| std::io::Error::new(std::io::ErrorKind::Other, error))?;
 
             match action {
-                Action::Read(size) => {
+                ReaderAction::Read(size) => {
                     let space = this.state_machine.space();
                     let mut space = ReadBuf::new(&mut space[..size]);
 
@@ -149,8 +149,8 @@ where
                     let n = space.filled().len();
                     this.state_machine.fill(n);
                 }
-                Action::Seek(_) => unreachable!(),
-                Action::Done(n) => {
+                ReaderAction::Seek(_) => unreachable!(),
+                ReaderAction::Done(n) => {
                     buffer.advance(n);
                     return Poll::Ready(Ok(()));
                 }

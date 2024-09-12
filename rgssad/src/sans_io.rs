@@ -47,9 +47,9 @@ impl std::error::Error for Error {
     }
 }
 
-/// An action that should be performed for the state machine, or a result.
+/// An action that should be performed for the reader state machine, or a result.
 #[derive(Debug)]
-pub enum Action<T> {
+pub enum ReaderAction<T> {
     /// Read at least the given number of bytes before stepping again.
     Read(usize),
 
@@ -60,21 +60,21 @@ pub enum Action<T> {
     Done(T),
 }
 
-impl<T> Action<T> {
+impl<T> ReaderAction<T> {
     /// Returns true if this is a `Done` variant.
     pub fn is_done(&self) -> bool {
         matches!(self, Self::Done(_))
     }
 
     /// Map the done variant.
-    pub fn map_done<F, O>(self, f: F) -> Action<O>
+    pub fn map_done<F, O>(self, f: F) -> ReaderAction<O>
     where
         F: FnOnce(T) -> O,
     {
         match self {
-            Self::Read(n) => Action::Read(n),
-            Self::Seek(p) => Action::Seek(p),
-            Self::Done(v) => Action::Done(f(v)),
+            Self::Read(n) => ReaderAction::Read(n),
+            Self::Seek(p) => ReaderAction::Seek(p),
+            Self::Done(v) => ReaderAction::Done(f(v)),
         }
     }
 }

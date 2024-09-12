@@ -1,5 +1,5 @@
-use super::Action;
 use super::Error;
+use super::ReaderAction;
 use crate::DEFAULT_KEY;
 use crate::MAGIC;
 use crate::MAGIC_LEN;
@@ -94,20 +94,20 @@ impl Reader {
 
     /// Step the state machine, performing the action of reading and validating the header.
     ///
-    /// If the header has already been read, `Ok(Action::Done(()))` is returned and no work is performed.
+    /// If the header has already been read, `Ok(ReaderAction::Done(()))` is returned and no work is performed.
     /// Calling this method is optional.
     /// The state machine will automatically read the header is if has not been read.
     /// This will never request a seek.
-    pub fn step_read_header(&mut self) -> Result<Action<()>, Error> {
+    pub fn step_read_header(&mut self) -> Result<ReaderAction<()>, Error> {
         if self.state != State::Header {
-            return Ok(Action::Done(()));
+            return Ok(ReaderAction::Done(()));
         }
 
         let data = self.buffer.data();
 
         let data_len = data.len();
         if data_len < HEADER_LEN {
-            return Ok(Action::Read(HEADER_LEN - data_len));
+            return Ok(ReaderAction::Read(HEADER_LEN - data_len));
         }
 
         // We validate the size above.
@@ -128,13 +128,15 @@ impl Reader {
         self.next_file_position = header_len_u64;
         self.state = State::FileHeader;
 
-        Ok(Action::Done(()))
+        Ok(ReaderAction::Done(()))
     }
 
     /// Step the state machine, performing the action of reading the next file header.
     ///
     /// This will read the header if it has not been read already.
-    pub fn step_read_file_header(&mut self) -> Result<Action<FileHeader>, Error> {
+    /// This may request a seek.
+    /// If you want to skip over the file data, call this again after it returns `ReadAction::Done`.
+    pub fn step_read_file_header(&mut self) -> Result<ReaderAction<FileHeader>, Error> {
         loop {
             match self.state {
                 State::Header => {
@@ -146,7 +148,7 @@ impl Reader {
                 State::FileHeader => break,
                 State::FileData { .. } => {
                     if self.position != self.next_file_position {
-                        return Ok(Action::Seek(self.next_file_position));
+                        return Ok(ReaderAction::Seek(self.next_file_position));
                     }
 
                     self.state = State::FileHeader;
@@ -159,7 +161,7 @@ impl Reader {
         let data_len = data.len();
 
         if data_len < U32_LEN {
-            return Ok(Action::Read(U32_LEN - data_len));
+            return Ok(ReaderAction::Read(U32_LEN - data_len));
         }
 
         let file_name_len = {
@@ -177,7 +179,7 @@ impl Reader {
 
         let file_header_size = (U32_LEN * 2) + file_name_len;
         if data_len < file_header_size {
-            return Ok(Action::Read(file_header_size - data_len));
+            return Ok(ReaderAction::Read(file_header_size - data_len));
         }
 
         let file_name = {
@@ -218,7 +220,7 @@ impl Reader {
             remaining: file_data_len,
         };
 
-        Ok(Action::Done(FileHeader {
+        Ok(ReaderAction::Done(FileHeader {
             name: file_name,
             size: file_data_len,
         }))
@@ -226,11 +228,13 @@ impl Reader {
 
     /// Read file data.
     ///
+    /// This will read the header if it has not already been read.
+    /// This will return `Ok(ReaderAction::Done(0))` if a file header has not been read.
     /// This will never request a seek.
     pub fn step_read_file_data(
         &mut self,
         output_buffer: &mut [u8],
-    ) -> Result<Action<usize>, Error> {
+    ) -> Result<ReaderAction<usize>, Error> {
         let (key, counter, remaining) = loop {
             match &mut self.state {
                 State::Header => {
@@ -239,7 +243,7 @@ impl Reader {
                         return Ok(action.map_done(|_| unreachable!()));
                     }
                 }
-                State::FileHeader => return Ok(Action::Done(0)),
+                State::FileHeader => return Ok(ReaderAction::Done(0)),
                 State::FileData {
                     key,
                     counter,
@@ -249,12 +253,12 @@ impl Reader {
         };
 
         if *remaining == 0 {
-            return Ok(Action::Done(0));
+            return Ok(ReaderAction::Done(0));
         }
 
         let data = self.buffer.data();
         if data.is_empty() {
-            return Ok(Action::Read(self.buffer.available_space()));
+            return Ok(ReaderAction::Read(self.buffer.available_space()));
         }
 
         let remaining_usize =
@@ -270,7 +274,7 @@ impl Reader {
         self.buffer.consume(len);
         self.position += u64::from(len_u32);
 
-        Ok(Action::Done(len))
+        Ok(ReaderAction::Done(len))
     }
 }
 
