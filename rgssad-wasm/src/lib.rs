@@ -37,30 +37,30 @@ impl Reader {
         Ok(Self { reader })
     }
 
-    /// Get the next entry.
+    /// Get the next file.
     ///
     /// # Arguments
     /// Takes a function as an argument.
     /// This function gets the file name and size as arguments.
     /// If this function returns true, it is skipped.
-    /// If this function is absent, the entry is not skipped.
+    /// If this function is absent, the file is not skipped.
     #[wasm_bindgen(js_name = "readEntry")]
     pub fn read_entry(&mut self, skip: Option<Function>) -> Result<Option<ReaderEntry>, JsValue> {
         loop {
-            let entry = self
+            let file = self
                 .reader
-                .read_entry()
+                .read_file()
                 .map_err(|error| JsError::new(&error.to_string()))?;
 
-            let mut entry = match entry {
-                Some(entry) => entry,
+            let mut file = match file {
+                Some(file) => file,
                 None => {
                     return Ok(None);
                 }
             };
 
-            let file_name = JsString::from(entry.file_name());
-            let size = Number::from(entry.size());
+            let file_name = JsString::from(file.name());
+            let size = Number::from(file.size());
 
             let should_skip = match skip.as_ref() {
                 Some(skip) => skip.call2(&JsValue::NULL, &file_name, &size)?.is_truthy(),
@@ -71,11 +71,10 @@ impl Reader {
                 continue;
             }
 
-            let mut buffer = Vec::with_capacity(entry.size() as usize);
-            entry
-                .read_to_end(&mut buffer)
+            let mut buffer = Vec::with_capacity(file.size() as usize);
+            file.read_to_end(&mut buffer)
                 .map_err(|error| JsError::new(&error.to_string()))?;
-            let data = Uint8Array::new_with_length(entry.size());
+            let data = Uint8Array::new_with_length(file.size());
             data.copy_from(&buffer);
 
             return Ok(Some(ReaderEntry { file_name, data }));
@@ -83,7 +82,7 @@ impl Reader {
     }
 }
 
-/// An entry from a [`Reader`].
+/// A file from a [`Reader`].
 #[wasm_bindgen]
 pub struct ReaderEntry {
     /// The file name

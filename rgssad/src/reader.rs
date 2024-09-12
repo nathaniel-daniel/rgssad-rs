@@ -42,14 +42,14 @@ where
 {
     /// Read and validate the header.
     ///
-    /// After this returns, call [`Reader::read_entry`] to read through entries.
+    /// After this returns, call [`Reader::read_file`] to read through entries.
     /// This function is a NOP if the header has already been read.
     pub fn read_header(&mut self) -> Result<(), Error> {
         loop {
             match self.state_machine.step_read_header()? {
-                Action::Read(num) => {
+                Action::Read(size) => {
                     let space = self.state_machine.space();
-                    let n = self.reader.read(&mut space[..num])?;
+                    let n = self.reader.read(&mut space[..size])?;
                     self.state_machine.fill(n);
                 }
                 Action::Done(()) => return Ok(()),
@@ -58,13 +58,13 @@ where
         }
     }
 
-    /// Read the next entry from this archive.
-    pub fn read_entry(&mut self) -> Result<Option<Entry<R>>, Error> {
+    /// Read the next file from this archive.
+    pub fn read_file(&mut self) -> Result<Option<File<R>>, Error> {
         loop {
             match self.state_machine.step_read_file_header()? {
-                Action::Read(num) => {
+                Action::Read(size) => {
                     let space = self.state_machine.space();
-                    let n = self.reader.read(&mut space[..num])?;
+                    let n = self.reader.read(&mut space[..size])?;
                     self.state_machine.fill(n);
 
                     if n == 0 {
@@ -84,8 +84,8 @@ where
                 }
                 Action::Done(file_header) => {
                     let size = file_header.size;
-                    return Ok(Some(Entry {
-                        file_name: file_header.name,
+                    return Ok(Some(File {
+                        name: file_header.name,
                         size,
                         state_machine: &mut self.state_machine,
                         reader: &mut self.reader,
@@ -96,23 +96,23 @@ where
     }
 }
 
-/// An entry in an rgssad file
+/// An file in an rgssad file
 #[derive(Debug)]
-pub struct Entry<'a, R> {
+pub struct File<'a, R> {
     /// The file path.
-    pub(crate) file_name: String,
+    name: String,
 
     /// The file size.
-    pub(crate) size: u32,
+    size: u32,
 
     reader: &'a mut R,
     state_machine: &'a mut crate::sans_io::Reader,
 }
 
-impl<R> Entry<'_, R> {
+impl<R> File<'_, R> {
     /// The file path
-    pub fn file_name(&self) -> &str {
-        self.file_name.as_str()
+    pub fn name(&self) -> &str {
+        self.name.as_str()
     }
 
     /// The file size
@@ -121,7 +121,7 @@ impl<R> Entry<'_, R> {
     }
 }
 
-impl<R> Read for Entry<'_, R>
+impl<R> Read for File<'_, R>
 where
     R: Read,
 {
@@ -163,7 +163,7 @@ mod test {
 
         // Ensure skipping works.
         let mut num_skipped_entries = 0;
-        while let Some(_entry) = reader.read_entry().expect("failed to read entry") {
+        while let Some(_file) = reader.read_file().expect("failed to read file") {
             num_skipped_entries += 1;
         }
 
@@ -174,15 +174,15 @@ mod test {
         let mut reader = Reader::new(file);
         reader.read_header().expect("failed to read header");
 
-        // Read entire archive into Vec.
-        let mut entries = Vec::new();
-        while let Some(mut entry) = reader.read_entry().expect("failed to read entry") {
+        // Read entire archive into a Vec.
+        let mut files = Vec::new();
+        while let Some(mut file) = reader.read_file().expect("failed to read file") {
             let mut buffer = Vec::new();
-            entry.read_to_end(&mut buffer).expect("failed to read file");
-            entries.push((entry.file_name().to_string(), buffer));
+            file.read_to_end(&mut buffer).expect("failed to read file");
+            files.push((file.name().to_string(), buffer));
         }
 
-        assert!(entries.len() == num_skipped_entries);
+        assert!(files.len() == num_skipped_entries);
     }
 
     #[test]
@@ -193,9 +193,9 @@ mod test {
         let mut reader = Reader::new(file);
         reader.read_header().expect("failed to read header");
 
-        while let Ok(Some(_entry)) = reader.read_entry() {}
+        while let Ok(Some(_file)) = reader.read_file() {}
 
-        let error = reader.read_entry().expect_err("reader should have errored");
+        let error = reader.read_file().expect_err("reader should have errored");
         assert!(
             matches!(error, Error::Io(error) if error.kind() == std::io::ErrorKind::UnexpectedEof)
         );

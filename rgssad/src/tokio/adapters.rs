@@ -22,14 +22,6 @@ impl<R> AsyncRead2Read<R> {
         }
     }
 
-    pub(super) fn into_inner(self) -> R {
-        self.reader
-    }
-
-    pub(super) fn get_mut(&mut self) -> &mut R {
-        &mut self.reader
-    }
-
     pub(super) fn set_waker(&mut self, new_waker: &Waker) {
         if self
             .waker

@@ -9,11 +9,12 @@ exclude = [
 
 [dependencies]
 oval = "2.0.0"
-tokio = { version = "1", features = [ "io-util" ], optional = true }
+pin-project-lite = { version = "0.2.14", optional = true}
+tokio = { version = "1.40.0", features = [ "io-util" ], optional = true }
 
 [dev-dependencies]
-tokio = { version = "1", features = [ "rt", "macros" ] }
+tokio = { version = "1.40.0", features = [ "rt", "macros" ] }
 
 [features]
 # Enable tokio wrappers
-tokio = ["dep:tokio"]
+tokio = [ "dep:tokio", "dep:pin-project-lite" ]

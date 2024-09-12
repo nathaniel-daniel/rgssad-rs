@@ -1,6 +1,5 @@
-use super::AsyncRead2Read;
+use crate::sans_io::Action;
 use crate::Error;
-use std::future::Future;
 use std::pin::Pin;
 use std::task::ready;
 use std::task::Context;
@@ -8,29 +7,33 @@ use std::task::Poll;
 use tokio::io::AsyncRead;
 use tokio::io::AsyncReadExt;
 use tokio::io::AsyncSeek;
+use tokio::io::AsyncSeekExt;
 use tokio::io::ReadBuf;
+use tokio::io::SeekFrom;
 
 /// A tokio wrapper for an archive reader.
 pub struct TokioReader<R> {
-    reader: crate::Reader<AsyncRead2Read<R>>,
+    reader: R,
+    state_machine: crate::sans_io::Reader,
 }
 
 impl<R> TokioReader<R> {
     /// Make a new [`TokioReader`].
     pub fn new(reader: R) -> Self {
-        Self {
-            reader: crate::Reader::new(AsyncRead2Read::new(reader)),
+        TokioReader {
+            reader,
+            state_machine: crate::sans_io::Reader::new(),
         }
     }
 
     /// Get the inner reader
     pub fn into_inner(self) -> R {
-        self.reader.into_inner().into_inner()
+        self.reader
     }
 
     /// Get a mutable ref to the inner reader
     pub fn get_mut(&mut self) -> &mut R {
-        self.reader.get_mut().get_mut()
+        &mut self.reader
     }
 }
 
@@ -39,84 +42,75 @@ where
     R: AsyncRead + AsyncSeek + std::marker::Unpin,
 {
     /// Read the header.
-    pub fn read_header(&mut self) -> impl Future<Output = Result<(), Error>> + '_ {
-        std::future::poll_fn(|cx| {
-            let adapter = self.reader.get_mut();
-            adapter.set_waker(cx.waker());
-
-            match self.reader.read_header() {
-                Ok(()) => Poll::Ready(Ok(())),
-                Err(Error::Io(error)) if error.kind() == std::io::ErrorKind::WouldBlock => {
-                    Poll::Pending
+    pub async fn read_header(&mut self) -> Result<(), Error> {
+        loop {
+            match self.state_machine.step_read_header()? {
+                Action::Read(size) => {
+                    let space = self.state_machine.space();
+                    let n = self.reader.read(&mut space[..size]).await?;
+                    self.state_machine.fill(n);
                 }
-                Err(error) => Poll::Ready(Err(error)),
+                Action::Done(()) => return Ok(()),
+                Action::Seek(_) => unreachable!(),
             }
-        })
+        }
     }
 
-    /// Read the next entry.
-    pub fn read_entry(&mut self) -> ReadEntryFuture<'_, R> {
-        ReadEntryFuture { reader: Some(self) }
-    }
-}
+    /// Read the next file.
+    pub async fn read_file<'a>(&'a mut self) -> Result<Option<Entry<'a, R>>, Error> {
+        loop {
+            match self.state_machine.step_read_file_header()? {
+                Action::Read(size) => {
+                    let space = self.state_machine.space();
+                    let n = self.reader.read(&mut space[..size]).await?;
+                    self.state_machine.fill(n);
 
-/// The future for reading the next [`Entry`].
-pub struct ReadEntryFuture<'a, R> {
-    reader: Option<&'a mut TokioReader<R>>,
-}
-
-impl<'a, R> Future for ReadEntryFuture<'a, R>
-where
-    R: AsyncRead + AsyncSeek + Unpin,
-{
-    type Output = Result<Option<Entry<'a, R>>, Error>;
-
-    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        let reader = self.reader.as_mut().expect("missing reader");
-
-        let adapter = reader.reader.get_mut();
-        adapter.set_waker(cx.waker());
-
-        match reader.reader.read_entry() {
-            Ok(result) => match result {
-                Some(entry) => {
-                    let file_name = entry.file_name;
-                    let size = entry.size;
-                    let key = entry.key;
-                    let reader = self.reader.take().expect("missing reader");
-
-                    Poll::Ready(Ok(Some(Entry {
-                        file_name,
+                    if n == 0 {
+                        if self.state_machine.available_data() == 0 {
+                            return Ok(None);
+                        } else {
+                            return Err(Error::Io(std::io::Error::new(
+                                std::io::ErrorKind::UnexpectedEof,
+                                "failed to fill whole buffer",
+                            )));
+                        }
+                    }
+                }
+                Action::Seek(position) => {
+                    self.reader.seek(SeekFrom::Start(position)).await?;
+                    self.state_machine.finish_seek();
+                }
+                Action::Done(file_header) => {
+                    let size = file_header.size;
+                    return Ok(Some(Entry {
+                        name: file_header.name,
                         size,
-                        key,
-                        reader: reader.get_mut().take(size.into()),
-                        counter: 0,
-                    })))
+                        reader: &mut self.reader,
+                        state_machine: &mut self.state_machine,
+                    }));
                 }
-                None => Poll::Ready(Ok(None)),
-            },
-            Err(Error::Io(error)) if error.kind() == std::io::ErrorKind::WouldBlock => {
-                Poll::Pending
             }
-            Err(error) => Poll::Ready(Err(error)),
         }
     }
 }
 
-/// An archive entry
-#[derive(Debug)]
-pub struct Entry<'a, R> {
-    file_name: String,
-    size: u32,
-    key: u32,
-    reader: tokio::io::Take<&'a mut R>,
-    counter: u8,
+pin_project_lite::pin_project! {
+    /// An archive file
+    #[derive(Debug)]
+    pub struct Entry<'a, R> {
+        name: String,
+        size: u32,
+
+        #[pin]
+        reader: &'a mut R,
+        state_machine: &'a mut crate::sans_io::Reader,
+    }
 }
 
 impl<R> Entry<'_, R> {
-    /// Get the file name
-    pub fn file_name(&self) -> &str {
-        self.file_name.as_str()
+    /// Get the file path
+    pub fn name(&self) -> &str {
+        self.name.as_str()
     }
 
     /// Get the file size
@@ -130,25 +124,37 @@ where
     &'a mut R: AsyncRead,
 {
     fn poll_read(
-        mut self: Pin<&mut Self>,
+        self: Pin<&mut Self>,
         cx: &mut Context<'_>,
-        buf: &mut ReadBuf<'_>,
+        buffer: &mut ReadBuf<'_>,
     ) -> Poll<std::io::Result<()>> {
-        let initial_filled_len = buf.filled().len();
+        let mut this = self.project();
 
-        let reader = Pin::new(&mut self.reader);
-        let result = ready!(reader.poll_read(cx, buf));
+        loop {
+            let action = this
+                .state_machine
+                .step_read_file_data(buffer.initialize_unfilled())
+                .map_err(|error| std::io::Error::new(std::io::ErrorKind::Other, error))?;
 
-        let this = self.get_mut();
-        let key = &mut this.key;
-        let counter = &mut this.counter;
+            match action {
+                Action::Read(size) => {
+                    let space = this.state_machine.space();
+                    let mut space = ReadBuf::new(&mut space[..size]);
 
-        crate::reader::decrypt_entry_bytes(
-            &mut buf.filled_mut()[initial_filled_len..],
-            key,
-            counter,
-        );
+                    // Even if we read shorter than requested,
+                    // the state machine is tolerant to this
+                    // and will request another read if needed.
+                    ready!(this.reader.as_mut().poll_read(cx, &mut space))?;
 
-        Poll::Ready(result)
+                    let n = space.filled().len();
+                    this.state_machine.fill(n);
+                }
+                Action::Seek(_) => unreachable!(),
+                Action::Done(n) => {
+                    buffer.advance(n);
+                    return Poll::Ready(Ok(()));
+                }
+            }
+        }
     }
 }
