@@ -38,22 +38,10 @@ pub enum Error {
     /// Invalid internal state, user error
     InvalidState,
 
-    /// Invalid magic number
-    InvalidMagic { magic: [u8; 7] },
-
-    /// Invalid version
-    InvalidVersion { version: u8 },
-
     /// The file name was too long
     FileNameTooLong {
         /// The error
         error: std::num::TryFromIntError,
-    },
-
-    /// A file name was invalid.
-    InvalidFileName {
-        /// The error
-        error: std::string::FromUtf8Error,
     },
 
     /// The provided file size does not match the file data's size.
@@ -71,10 +59,9 @@ impl std::fmt::Display for Error {
         match self {
             Self::Io(_error) => write!(f, "an I/O error occured"),
             Self::InvalidState => write!(f, "user error, invalid internal state"),
-            Self::InvalidMagic { magic } => write!(f, "magic number \"{magic:?}\" is invalid"),
-            Self::InvalidVersion { version } => write!(f, "version \"{version}\" is invalid"),
+
             Self::FileNameTooLong { .. } => write!(f, "the file name is too long"),
-            Self::InvalidFileName { .. } => write!(f, "invalid file name"),
+
             Self::FileDataSizeMismatch { actual, expected } => write!(
                 f,
                 "file data size mismatch, expected {expected} but got {actual}"
@@ -90,7 +77,7 @@ impl std::error::Error for Error {
         match self {
             Self::Io(error) => Some(error),
             Self::FileNameTooLong { error } => Some(error),
-            Self::InvalidFileName { error } => Some(error),
+
             Self::SansIo(error) => error.source(),
             _ => None,
         }
