@@ -24,10 +24,14 @@ const MAGIC_LEN: usize = 7;
 const MAGIC: [u8; MAGIC_LEN] = *b"RGSSAD\0";
 /// The file version
 const VERSION: u8 = 1;
+/// The size of the header.
+const HEADER_LEN: usize = MAGIC_LEN + 1;
 /// The default encryption key
 const DEFAULT_KEY: u32 = 0xDEADCAFE;
 /// The maximum file name len
 const MAX_FILE_NAME_LEN: u32 = 4096;
+/// The size of a u32, in bytes.
+const U32_LEN: usize = 4;
 
 /// The library error type
 #[derive(Debug)]

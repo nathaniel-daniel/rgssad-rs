@@ -1,10 +1,9 @@
 mod buffer;
 
 use self::buffer::Buffer;
+use crate::sans_io::WriterAction;
 use crate::Error;
 use crate::DEFAULT_KEY;
-use crate::MAGIC;
-use crate::VERSION;
 use std::io::Read;
 use std::io::Write;
 
@@ -41,11 +40,7 @@ fn rotate_key(key: u32) -> u32 {
 
 #[derive(Debug)]
 enum State {
-    // Header States
-    WriteMagic {
-        position: usize,
-    },
-    WriteVersion,
+    Header,
 
     // Entry States
     WriteEntryStart,
@@ -92,6 +87,9 @@ pub struct Writer<W> {
 
     /// The current state
     state: State,
+
+    /// The state machine
+    state_machine: crate::sans_io::Writer,
 }
 
 impl<W> Writer<W> {
@@ -101,7 +99,8 @@ impl<W> Writer<W> {
             writer,
             key: DEFAULT_KEY,
             buffer: vec![0; BUFFER_SIZE],
-            state: State::WriteMagic { position: 0 },
+            state: State::Header,
+            state_machine: crate::sans_io::Writer::new(),
         }
     }
 
@@ -124,19 +123,30 @@ where
     ///
     /// If the header has already been written, this is a NOP.
     pub fn write_header(&mut self) -> Result<(), Error> {
+        if !matches!(self.state, State::Header) {
+            return Ok(());
+        }
+
         loop {
-            match &mut self.state {
-                State::WriteMagic { position } => {
-                    write_all(&mut self.writer, &MAGIC, position)?;
-                    self.state = State::WriteVersion;
+            let action = self.state_machine.step_write_header()?;
+            match action {
+                WriterAction::Write => {
+                    let data = self.state_machine.data();
+                    let size = self.writer.write(data)?;
+                    self.state_machine.consume(size);
                 }
-                State::WriteVersion => {
-                    // We don't need a buffer here since this is 1 byte.
-                    self.writer.write_all(std::slice::from_ref(&VERSION))?;
+                WriterAction::Done(()) => {
+                    loop {
+                        let data = self.state_machine.data();
+                        if data.is_empty() {
+                            break;
+                        }
+
+                        let n = self.writer.write(data)?;
+                        self.state_machine.consume(n);
+                    }
+
                     self.state = State::WriteEntryStart;
-                    return Ok(());
-                }
-                _ => {
                     return Ok(());
                 }
             }
