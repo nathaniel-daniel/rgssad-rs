@@ -101,6 +101,17 @@ impl<T> WriterAction<T> {
     pub fn is_done(&self) -> bool {
         matches!(self, Self::Done(_))
     }
+
+    /// Map the done variant.
+    fn map_done<F, O>(self, f: F) -> WriterAction<O>
+    where
+        F: FnOnce(T) -> O,
+    {
+        match self {
+            Self::Write => WriterAction::Write,
+            Self::Done(v) => WriterAction::Done(f(v)),
+        }
+    }
 }
 
 /// A file header

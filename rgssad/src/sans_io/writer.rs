@@ -1,6 +1,7 @@
 use super::Error;
 use super::WriterAction;
-use crate::sans_io::FileHeader;
+use crate::crypt_name_bytes;
+use crate::crypt_u32;
 use crate::DEFAULT_KEY;
 use crate::HEADER_LEN;
 use crate::MAGIC;
@@ -15,7 +16,7 @@ const DEFAULT_BUFFER_CAPACITY: usize = 10 * 1024;
 #[derive(Debug)]
 pub struct Writer {
     buffer: oval::Buffer,
-    key: u32,
+    pub(crate) key: u32,
     state: State,
 }
 
@@ -71,9 +72,10 @@ impl Writer {
     /// Step the state machine, performing the action of writing the next file header.
     ///
     /// This will write the header if it has not been written already.
-    pub fn write_file_header(
+    pub fn step_write_file_header(
         &mut self,
-        file_header: FileHeader,
+        name: &str,
+        size: u32,
     ) -> Result<WriterAction<()>, Error> {
         loop {
             match self.state {
@@ -87,12 +89,12 @@ impl Writer {
                     break;
                 }
                 State::FileData => {
-                    todo!("State::FileData");
+                    todo!("write_file_header -> State::FileData");
                 }
             }
         }
 
-        let name_len = file_header.name.len();
+        let name_len = name.len();
         if name_len > usize::try_from(MAX_FILE_NAME_LEN).unwrap() {
             return Err(Error::FileNameTooLongUsize { len: name_len });
         }
@@ -100,14 +102,52 @@ impl Writer {
         let name_len_u32 = u32::try_from(name_len).unwrap();
 
         let space = self.buffer.space();
-        let needed_size = (U32_LEN * 2) + name_len;
-        if space.len() < needed_size {
+        let file_header_size = (U32_LEN * 2) + name_len;
+        if space.len() < file_header_size {
             return Ok(WriterAction::Write);
         }
 
-        space.copy_from_slice(&name_len_u32.to_le_bytes());
+        let mut key = self.key;
 
-        todo!("write_file_header")
+        let data = crypt_u32(&mut key, name_len_u32);
+        let (bytes, space) = space.split_at_mut(U32_LEN);
+        bytes.copy_from_slice(&data.to_le_bytes());
+
+        let (bytes, space) = space.split_at_mut(name_len);
+        bytes.copy_from_slice(name.as_bytes());
+        crypt_name_bytes(&mut key, bytes);
+
+        let data = crypt_u32(&mut key, size);
+        let (bytes, _space) = space.split_at_mut(U32_LEN);
+        bytes.copy_from_slice(&data.to_le_bytes());
+
+        self.key = key;
+        self.buffer.fill(file_header_size);
+
+        // self.state = State::FileData;
+
+        Ok(WriterAction::Done(()))
+    }
+
+    pub fn step_write_file_data(&mut self) -> Result<WriterAction<usize>, Error> {
+        loop {
+            match self.state {
+                State::Header => {
+                    let action = self.step_write_header()?;
+                    if !action.is_done() {
+                        return Ok(action.map_done(|_| unreachable!()));
+                    }
+                }
+                State::FileHeader => {
+                    todo!("step_write_file_data -> State::FileHeader");
+                }
+                State::FileData => {
+                    break;
+                }
+            }
+        }
+
+        todo!("step_write_file_data");
     }
 }
 

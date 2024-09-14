@@ -1,6 +1,8 @@
 use super::Error;
 use super::FileHeader;
 use super::ReaderAction;
+use crate::crypt_name_bytes;
+use crate::crypt_u32;
 use crate::DEFAULT_KEY;
 use crate::HEADER_LEN;
 use crate::MAGIC;
@@ -10,13 +12,6 @@ use crate::U32_LEN;
 use crate::VERSION;
 
 const DEFAULT_BUFFER_CAPACITY: usize = 10 * 1024;
-
-/// Decrypt an encrypted u32, and rotate the key as needed.
-fn decrypt_u32(key: &mut u32, mut n: u32) -> u32 {
-    n ^= *key;
-    *key = key.overflowing_mul(7).0.overflowing_add(3).0;
-    n
-}
 
 /// Decrypt the encrypted file data bytes.
 fn decrypt_file_data_bytes(buffer: &mut [u8], key: &mut u32, counter: &mut u8) {
@@ -167,7 +162,7 @@ impl Reader {
             // We check the buffer size above.
             let bytes = data[..U32_LEN].try_into().unwrap();
             let n = u32::from_le_bytes(bytes);
-            let n = decrypt_u32(&mut key, n);
+            let n = crypt_u32(&mut key, n);
             if n > MAX_FILE_NAME_LEN {
                 return Err(Error::FileNameTooLongU32 { len: n });
             }
@@ -183,11 +178,7 @@ impl Reader {
 
         let file_name = {
             let mut bytes = data[U32_LEN..U32_LEN + file_name_len].to_vec();
-            for byte in bytes.iter_mut() {
-                // We mask with 0xFF, this cannot exceed the bounds of a u8.
-                *byte ^= u8::try_from(key & 0xFF).unwrap();
-                key = key.overflowing_mul(7).0.overflowing_add(3).0;
-            }
+            crypt_name_bytes(&mut key, &mut bytes);
 
             // I'm fairly certain these are required to be ASCII, but I forget the source.
             //
@@ -201,7 +192,7 @@ impl Reader {
             let range = index..index + U32_LEN;
             let bytes = data[range].try_into().unwrap();
             let n = u32::from_le_bytes(bytes);
-            decrypt_u32(&mut key, n)
+            crypt_u32(&mut key, n)
         };
 
         // This should not be able to overflow a u64.

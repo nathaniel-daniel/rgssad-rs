@@ -100,6 +100,21 @@ impl From<self::sans_io::Error> for Error {
     }
 }
 
+/// Encrypt or decrypt an u32, and rotate the key as needed.
+fn crypt_u32(key: &mut u32, mut n: u32) -> u32 {
+    n ^= *key;
+    *key = key.overflowing_mul(7).0.overflowing_add(3).0;
+    n
+}
+
+fn crypt_name_bytes(key: &mut u32, bytes: &mut [u8]) {
+    for byte in bytes.iter_mut() {
+        // We mask with 0xFF, this cannot exceed the bounds of a u8.
+        *byte ^= u8::try_from(*key & 0xFF).unwrap();
+        *key = key.overflowing_mul(7).0.overflowing_add(3).0;
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;

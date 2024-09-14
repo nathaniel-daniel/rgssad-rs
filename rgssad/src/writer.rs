@@ -41,6 +41,7 @@ fn rotate_key(key: u32) -> u32 {
 #[derive(Debug)]
 enum State {
     Header,
+    FileHeader,
 
     // Entry States
     WriteEntryStart,
@@ -146,7 +147,7 @@ where
                         self.state_machine.consume(n);
                     }
 
-                    self.state = State::WriteEntryStart;
+                    self.state = State::FileHeader;
                     return Ok(());
                 }
             }
@@ -170,6 +171,40 @@ where
     {
         loop {
             match &mut self.state {
+                State::FileHeader => 'one: loop {
+                    loop {
+                        let data = self.state_machine.data();
+                        if data.is_empty() {
+                            break;
+                        }
+
+                        let n = self.writer.write(data)?;
+                        self.state_machine.consume(n);
+                    }
+
+                    let action = self
+                        .state_machine
+                        .step_write_file_header(file_name, file_size)?;
+
+                    match action {
+                        WriterAction::Write => {
+                            let data = self.state_machine.data();
+                            let size = self.writer.write(data)?;
+                            self.state_machine.consume(size);
+                        }
+                        WriterAction::Done(()) => {
+                            self.buffer.clear();
+                            self.buffer.resize(BUFFER_SIZE, 0);
+                            self.state = State::ReadEntryData {
+                                counter: 0,
+                                key: self.state_machine.key,
+                                bytes_written: 0,
+                            };
+
+                            break 'one;
+                        }
+                    }
+                },
                 State::WriteEntryStart => {
                     // Validate file name len.
                     let mut file_name_len = u32::try_from(file_name.len())
@@ -221,6 +256,16 @@ where
                     key,
                     bytes_written,
                 } => {
+                    loop {
+                        let data = self.state_machine.data();
+                        if data.is_empty() {
+                            break;
+                        }
+
+                        let n = self.writer.write(data)?;
+                        self.state_machine.consume(n);
+                    }
+
                     let n = file_data.read(&mut self.buffer)?;
                     if n == 0 {
                         if file_size != *bytes_written {
@@ -230,7 +275,7 @@ where
                             });
                         }
 
-                        self.state = State::WriteEntryStart;
+                        self.state = State::FileHeader;
                         return Ok(());
                     }
 
@@ -286,7 +331,7 @@ where
     /// This is only a convenience function to call the inner [`Write`] object's [`Write::flush`] method.
     pub fn finish(&mut self) -> Result<(), Error> {
         match &mut self.state {
-            State::WriteEntryStart => {}
+            State::WriteEntryStart | State::FileHeader => {}
             _ => {
                 return Err(Error::InvalidState);
             }
