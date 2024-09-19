@@ -1,5 +1,6 @@
 use super::Error;
 use super::WriterAction;
+use crate::crypt_file_data;
 use crate::crypt_name_bytes;
 use crate::crypt_u32;
 use crate::DEFAULT_KEY;
@@ -37,6 +38,11 @@ impl Writer {
         self.buffer.data()
     }
 
+    /// Get a reference to the space data buffer where data should inserted.
+    pub fn space(&mut self) -> &mut [u8] {
+        self.buffer.space()
+    }
+
     /// Consume a number of bytes from the output buffer.
     pub fn consume(&mut self, size: usize) {
         self.buffer.consume(size);
@@ -50,7 +56,7 @@ impl Writer {
     pub fn step_write_header(&mut self) -> Result<WriterAction<()>, Error> {
         match self.state {
             State::Header => {}
-            State::FileHeader | State::FileData => {
+            State::FileHeader | State::FileData { .. } => {
                 return Ok(WriterAction::Done(()));
             }
         }
@@ -88,8 +94,8 @@ impl Writer {
                 State::FileHeader => {
                     break;
                 }
-                State::FileData => {
-                    todo!("write_file_header -> State::FileData");
+                State::FileData { remaining, .. } => {
+                    todo!("write_file_header -> State::FileData, remaining={remaining}");
                 }
             }
         }
@@ -124,14 +130,22 @@ impl Writer {
         self.key = key;
         self.buffer.fill(file_header_size);
 
-        // self.state = State::FileData;
+        self.state = State::FileData {
+            key,
+            counter: 0,
+            remaining: size,
+        };
 
         Ok(WriterAction::Done(()))
     }
 
-    pub fn step_write_file_data(&mut self) -> Result<WriterAction<usize>, Error> {
-        loop {
-            match self.state {
+    /// Step the state machine, performing the action of writing the file data.
+    ///
+    /// This will write the header if it has not been written already.
+    /// Populate the space buffer with the bytes to write, then pass the number of bytes written to this function.
+    pub fn step_write_file_data(&mut self, size: usize) -> Result<WriterAction<usize>, Error> {
+        let (key, counter, remaining) = loop {
+            match &mut self.state {
                 State::Header => {
                     let action = self.step_write_header()?;
                     if !action.is_done() {
@@ -141,13 +155,27 @@ impl Writer {
                 State::FileHeader => {
                     todo!("step_write_file_data -> State::FileHeader");
                 }
-                State::FileData => {
-                    break;
+                State::FileData {
+                    key,
+                    counter,
+                    remaining,
+                } => {
+                    break (key, counter, remaining);
                 }
             }
+        };
+
+        let space = self.buffer.space();
+        crypt_file_data(key, counter, &mut space[..size]);
+
+        *remaining -= u32::try_from(size).expect("number of bytes written cannot fit in a `u32`");
+        if *remaining == 0 {
+            self.state = State::FileHeader;
         }
 
-        todo!("step_write_file_data");
+        self.buffer.fill(size);
+
+        Ok(WriterAction::Done(size))
     }
 }
 
@@ -161,5 +189,9 @@ impl Default for Writer {
 enum State {
     Header,
     FileHeader,
-    FileData,
+    FileData {
+        key: u32,
+        counter: u8,
+        remaining: u32,
+    },
 }

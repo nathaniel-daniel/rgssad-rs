@@ -42,9 +42,12 @@ fn rotate_key(key: u32) -> u32 {
 enum State {
     Header,
     FileHeader,
+    FileData {
+        size: usize,
+    },
+    Flush,
 
     // Entry States
-    WriteEntryStart,
     WriteEntry {
         file_name_size_buffer: Buffer<[u8; 4]>,
         file_name_position: usize,
@@ -171,7 +174,7 @@ where
     {
         loop {
             match &mut self.state {
-                State::FileHeader => 'one: loop {
+                State::FileHeader => loop {
                     loop {
                         let data = self.state_machine.data();
                         if data.is_empty() {
@@ -200,37 +203,57 @@ where
                                 key: self.state_machine.key,
                                 bytes_written: 0,
                             };
+                            self.state = State::FileData { size: 0 };
 
-                            break 'one;
+                            break;
                         }
                     }
                 },
-                State::WriteEntryStart => {
-                    // Validate file name len.
-                    let mut file_name_len = u32::try_from(file_name.len())
-                        .map_err(|error| Error::FileNameTooLong { error })?;
-
-                    // Encrypt file name
-                    file_name_len ^= self.key;
-                    self.key = rotate_key(self.key);
-
-                    // Encrypt file name in buffer.
-                    self.buffer.clear();
-                    self.buffer.extend(file_name.as_bytes());
-                    for byte in self.buffer.iter_mut() {
-                        *byte ^= u8::try_from(self.key & 0xFF).unwrap();
-                        self.key = rotate_key(self.key);
+                State::FileData { size } => {
+                    loop {
+                        let data = self.state_machine.data();
+                        if data.is_empty() {
+                            break;
+                        }
+                        let n = self.writer.write(data)?;
+                        self.state_machine.consume(n);
                     }
 
-                    // Encrypt file size
-                    let file_size = file_size ^ self.key;
-                    self.key = rotate_key(self.key);
+                    if *size == 0 {
+                        let space = self.state_machine.space();
+                        let n = file_data.read(space)?;
+                        if n == 0 {
+                            self.state = State::Flush;
+                            continue;
+                        }
+                        *size = n;
+                    } else {
+                        let action = self.state_machine.step_write_file_data(*size)?;
+                        match action {
+                            WriterAction::Write => {
+                                let data = self.state_machine.data();
+                                let n = self.writer.write(data)?;
+                                self.state_machine.consume(n);
+                            }
+                            WriterAction::Done(written) => {
+                                *size -= written;
+                            }
+                        }
+                    }
+                }
+                State::Flush => {
+                    loop {
+                        let data = self.state_machine.data();
+                        if data.is_empty() {
+                            break;
+                        }
 
-                    self.state = State::WriteEntry {
-                        file_name_size_buffer: Buffer::new(file_name_len.to_le_bytes()),
-                        file_name_position: 0,
-                        file_size_buffer: Buffer::new(file_size.to_le_bytes()),
-                    };
+                        let n = self.writer.write(data)?;
+                        self.state_machine.consume(n);
+                    }
+
+                    self.state = State::FileHeader;
+                    return Ok(());
                 }
                 State::WriteEntry {
                     file_name_size_buffer,
@@ -331,7 +354,7 @@ where
     /// This is only a convenience function to call the inner [`Write`] object's [`Write::flush`] method.
     pub fn finish(&mut self) -> Result<(), Error> {
         match &mut self.state {
-            State::WriteEntryStart | State::FileHeader => {}
+            State::FileHeader => {}
             _ => {
                 return Err(Error::InvalidState);
             }

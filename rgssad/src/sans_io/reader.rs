@@ -1,6 +1,7 @@
 use super::Error;
 use super::FileHeader;
 use super::ReaderAction;
+use crate::crypt_file_data;
 use crate::crypt_name_bytes;
 use crate::crypt_u32;
 use crate::DEFAULT_KEY;
@@ -12,17 +13,6 @@ use crate::U32_LEN;
 use crate::VERSION;
 
 const DEFAULT_BUFFER_CAPACITY: usize = 10 * 1024;
-
-/// Decrypt the encrypted file data bytes.
-fn decrypt_file_data_bytes(buffer: &mut [u8], key: &mut u32, counter: &mut u8) {
-    for byte in buffer.iter_mut() {
-        *byte ^= key.to_le_bytes()[usize::from(*counter)];
-        if *counter == 3 {
-            *key = key.overflowing_mul(7).0.overflowing_add(3).0;
-        }
-        *counter = (*counter + 1) % 4;
-    }
-}
 
 /// A sans-io reader state machine.
 #[derive(Debug)]
@@ -259,7 +249,7 @@ impl Reader {
         let output_buffer = &mut output_buffer[..len];
 
         output_buffer.copy_from_slice(&data[..len]);
-        decrypt_file_data_bytes(output_buffer, key, counter);
+        crypt_file_data(key, counter, output_buffer);
         *remaining -= len_u32;
         self.buffer.consume(len);
         self.position += u64::from(len_u32);

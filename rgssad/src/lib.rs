@@ -107,11 +107,23 @@ fn crypt_u32(key: &mut u32, mut n: u32) -> u32 {
     n
 }
 
+/// Encrypt of decrypt a file name, and rotate the key as needed.
 fn crypt_name_bytes(key: &mut u32, bytes: &mut [u8]) {
     for byte in bytes.iter_mut() {
         // We mask with 0xFF, this cannot exceed the bounds of a u8.
         *byte ^= u8::try_from(*key & 0xFF).unwrap();
         *key = key.overflowing_mul(7).0.overflowing_add(3).0;
+    }
+}
+
+/// Encrypt or decrypt the encrypted file data, and rotate the key as needed.
+fn crypt_file_data(key: &mut u32, counter: &mut u8, buffer: &mut [u8]) {
+    for byte in buffer.iter_mut() {
+        *byte ^= key.to_le_bytes()[usize::from(*counter)];
+        if *counter == 3 {
+            *key = key.overflowing_mul(7).0.overflowing_add(3).0;
+        }
+        *counter = (*counter + 1) % 4;
     }
 }
 
@@ -373,6 +385,10 @@ mod test {
         let file = reader.into_inner();
 
         // Ensure archives are byte-for-byte equivalent.
-        assert!(&new_file.inner.borrow().0 == file.get_ref());
+        let new_file = new_file.inner.borrow();
+        let new_file = &new_file.0;
+        let file = file.get_ref();
+        dbg!(new_file.len(), file.len());
+        assert!(new_file == file);
     }
 }
