@@ -17,8 +17,10 @@ const DEFAULT_BUFFER_CAPACITY: usize = 10 * 1024;
 #[derive(Debug)]
 pub struct Writer {
     buffer: oval::Buffer,
-    pub(crate) key: u32,
+    key: u32,
     state: State,
+    remaining: u32,
+    last_file_size: Option<u32>,
 }
 
 impl Writer {
@@ -28,6 +30,8 @@ impl Writer {
             buffer: oval::Buffer::with_capacity(DEFAULT_BUFFER_CAPACITY),
             key: DEFAULT_KEY,
             state: State::Header,
+            remaining: 0,
+            last_file_size: None,
         }
     }
 
@@ -94,8 +98,13 @@ impl Writer {
                 State::FileHeader => {
                     break;
                 }
-                State::FileData { remaining, .. } => {
-                    todo!("write_file_header -> State::FileData, remaining={remaining}");
+                State::FileData { .. } => {
+                    // We never transition to the FileData state without setting the last_file_size field.
+                    let size = self.last_file_size.unwrap();
+                    return Err(Error::FileDataSizeMismatch {
+                        actual: size - self.remaining,
+                        expected: size,
+                    });
                 }
             }
         }
@@ -130,11 +139,9 @@ impl Writer {
         self.key = key;
         self.buffer.fill(file_header_size);
 
-        self.state = State::FileData {
-            key,
-            counter: 0,
-            remaining: size,
-        };
+        self.state = State::FileData { key, counter: 0 };
+        self.remaining = size;
+        self.last_file_size = Some(size);
 
         Ok(WriterAction::Done(()))
     }
@@ -144,7 +151,7 @@ impl Writer {
     /// This will write the header if it has not been written already.
     /// Populate the space buffer with the bytes to write, then pass the number of bytes written to this function.
     pub fn step_write_file_data(&mut self, size: usize) -> Result<WriterAction<usize>, Error> {
-        let (key, counter, remaining) = loop {
+        let (key, counter) = loop {
             match &mut self.state {
                 State::Header => {
                     let action = self.step_write_header()?;
@@ -152,24 +159,30 @@ impl Writer {
                         return Ok(action.map_done(|_| unreachable!()));
                     }
                 }
-                State::FileHeader => {
-                    todo!("step_write_file_data -> State::FileHeader");
-                }
-                State::FileData {
-                    key,
-                    counter,
-                    remaining,
-                } => {
-                    break (key, counter, remaining);
+                State::FileHeader => match self.last_file_size {
+                    Some(size) => {
+                        return Err(Error::FileDataSizeMismatch {
+                            actual: size - self.remaining,
+                            expected: size,
+                        });
+                    }
+                    None => {
+                        return Err(Error::InvalidState);
+                    }
+                },
+                State::FileData { key, counter, .. } => {
+                    break (key, counter);
                 }
             }
         };
 
+        let size_u32 = u32::try_from(size).expect("number of bytes written cannot fit in a `u32`");
+
         let space = self.buffer.space();
         crypt_file_data(key, counter, &mut space[..size]);
 
-        *remaining -= u32::try_from(size).expect("number of bytes written cannot fit in a `u32`");
-        if *remaining == 0 {
+        self.remaining -= size_u32;
+        if self.remaining == 0 {
             self.state = State::FileHeader;
         }
 
@@ -189,9 +202,5 @@ impl Default for Writer {
 enum State {
     Header,
     FileHeader,
-    FileData {
-        key: u32,
-        counter: u8,
-        remaining: u32,
-    },
+    FileData { key: u32, counter: u8 },
 }

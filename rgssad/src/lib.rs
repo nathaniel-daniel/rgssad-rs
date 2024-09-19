@@ -4,12 +4,11 @@
 pub mod reader;
 /// sans-io state machines for reading and writing.
 pub mod sans_io;
-/// The archive writer.
-pub mod writer;
-
 /// Tokio adapters for archive readers and writers.
 #[cfg(feature = "tokio")]
 pub mod tokio;
+/// The archive writer.
+pub mod writer;
 
 pub use self::reader::Reader;
 #[cfg(feature = "tokio")]
@@ -20,15 +19,21 @@ pub use self::writer::Writer;
 
 /// The len of the magic number.
 const MAGIC_LEN: usize = 7;
-/// The magic number
+/// The magic number.
 const MAGIC: [u8; MAGIC_LEN] = *b"RGSSAD\0";
 /// The file version
 const VERSION: u8 = 1;
 /// The size of the header.
 const HEADER_LEN: usize = MAGIC_LEN + 1;
-/// The default encryption key
+/// The default encryption key.
 const DEFAULT_KEY: u32 = 0xDEADCAFE;
-/// The maximum file name len
+/// The maximum file name len.
+///
+/// This was chosen arbirtarily,
+/// off of Linux's common 4096 max path length.
+/// Note that the real limit for this value is much lower,
+/// as this format is for a Windows application and
+/// Windows' max path length is 255.
 const MAX_FILE_NAME_LEN: u32 = 4096;
 /// The size of a u32, in bytes.
 const U32_LEN: usize = 4;
@@ -42,18 +47,6 @@ pub enum Error {
     /// Invalid internal state, user error
     InvalidState,
 
-    /// The file name was too long
-    FileNameTooLong {
-        /// The error
-        error: std::num::TryFromIntError,
-    },
-
-    /// The provided file size does not match the file data's size.
-    FileDataSizeMismatch { actual: u32, expected: u32 },
-
-    /// The file data was too long
-    FileDataTooLong,
-
     /// There was an error with the sans-io state machine.
     SansIo(self::sans_io::Error),
 }
@@ -63,14 +56,6 @@ impl std::fmt::Display for Error {
         match self {
             Self::Io(_error) => write!(f, "an I/O error occured"),
             Self::InvalidState => write!(f, "user error, invalid internal state"),
-
-            Self::FileNameTooLong { .. } => write!(f, "the file name is too long"),
-
-            Self::FileDataSizeMismatch { actual, expected } => write!(
-                f,
-                "file data size mismatch, expected {expected} but got {actual}"
-            ),
-            Self::FileDataTooLong => write!(f, "file data too long"),
             Self::SansIo(error) => error.fmt(f),
         }
     }
@@ -80,8 +65,6 @@ impl std::error::Error for Error {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::Io(error) => Some(error),
-            Self::FileNameTooLong { error } => Some(error),
-
             Self::SansIo(error) => error.source(),
             _ => None,
         }
@@ -118,6 +101,9 @@ fn crypt_name_bytes(key: &mut u32, bytes: &mut [u8]) {
 
 /// Encrypt or decrypt the encrypted file data, and rotate the key as needed.
 fn crypt_file_data(key: &mut u32, counter: &mut u8, buffer: &mut [u8]) {
+    // TODO: We can possibly be more efficient here.
+    // If we are able to cast this to a slice of u32s,
+    // we can crypt that instead and use this byte-wise impl only at the end.
     for byte in buffer.iter_mut() {
         *byte ^= key.to_le_bytes()[usize::from(*counter)];
         if *counter == 3 {

@@ -1,93 +1,20 @@
-mod buffer;
-
-use self::buffer::Buffer;
 use crate::sans_io::WriterAction;
 use crate::Error;
-use crate::DEFAULT_KEY;
 use std::io::Read;
 use std::io::Write;
 
-/// Write into a buffer, updating position as necessary.
-fn write_all<W>(mut writer: W, buffer: &[u8], position: &mut usize) -> std::io::Result<()>
-where
-    W: Write,
-{
-    loop {
-        if *position == buffer.len() {
-            return Ok(());
-        }
-
-        match writer.write(&buffer[*position..]) {
-            Ok(0) => {
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::WriteZero,
-                    "failed to write whole buffer",
-                ));
-            }
-            Ok(n) => {
-                *position += n;
-            }
-            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
-            Err(error) => return Err(error),
-        }
-    }
-}
-
-/// Rotate the key.
-fn rotate_key(key: u32) -> u32 {
-    key.overflowing_mul(7).0.overflowing_add(3).0
-}
-
 #[derive(Debug)]
 enum State {
-    Header,
     FileHeader,
-    FileData {
-        size: usize,
-    },
+    FileData { size: usize },
     Flush,
-
-    // Entry States
-    WriteEntry {
-        file_name_size_buffer: Buffer<[u8; 4]>,
-        file_name_position: usize,
-        file_size_buffer: Buffer<[u8; 4]>,
-    },
-    ReadEntryData {
-        counter: u8,
-        key: u32,
-        bytes_written: u32,
-    },
-    WriteEntryData {
-        counter: u8,
-        key: u32,
-        bytes_written: u32,
-        position: usize,
-        buffer_size: usize,
-    },
 }
-
-/// 8Kb of space,
-/// The same default that [`std::io::BufWriter`] uses.
-const BUFFER_SIZE: usize = 8 * 1024;
 
 /// The archive writer.
 #[derive(Debug)]
 pub struct Writer<W> {
     /// The inner writer.
     writer: W,
-
-    /// The current encryption key
-    key: u32,
-
-    /// A scratch space for encryption.
-    ///
-    /// Data must be encrypted before being written out.
-    /// This encryption is performed in this scratch space.
-    /// This cannot be done in-place, as we allow users to supply [`Read`] objects for file data.
-    /// Methods that use the scratch space should not call other methods that use the scratch space while it is in use.
-    /// The buffer should be cleared by its user, before each use.
-    buffer: Vec<u8>,
 
     /// The current state
     state: State,
@@ -101,9 +28,7 @@ impl<W> Writer<W> {
     pub fn new(writer: W) -> Writer<W> {
         Writer {
             writer,
-            key: DEFAULT_KEY,
-            buffer: vec![0; BUFFER_SIZE],
-            state: State::Header,
+            state: State::FileHeader,
             state_machine: crate::sans_io::Writer::new(),
         }
     }
@@ -127,10 +52,6 @@ where
     ///
     /// If the header has already been written, this is a NOP.
     pub fn write_header(&mut self) -> Result<(), Error> {
-        if !matches!(self.state, State::Header) {
-            return Ok(());
-        }
-
         loop {
             let action = self.state_machine.step_write_header()?;
             match action {
@@ -174,17 +95,7 @@ where
     {
         loop {
             match &mut self.state {
-                State::FileHeader => loop {
-                    loop {
-                        let data = self.state_machine.data();
-                        if data.is_empty() {
-                            break;
-                        }
-
-                        let n = self.writer.write(data)?;
-                        self.state_machine.consume(n);
-                    }
-
+                State::FileHeader => {
                     let action = self
                         .state_machine
                         .step_write_file_header(file_name, file_size)?;
@@ -196,31 +107,22 @@ where
                             self.state_machine.consume(size);
                         }
                         WriterAction::Done(()) => {
-                            self.buffer.clear();
-                            self.buffer.resize(BUFFER_SIZE, 0);
-                            self.state = State::ReadEntryData {
-                                counter: 0,
-                                key: self.state_machine.key,
-                                bytes_written: 0,
-                            };
                             self.state = State::FileData { size: 0 };
-
-                            break;
                         }
                     }
-                },
+                }
                 State::FileData { size } => {
-                    loop {
-                        let data = self.state_machine.data();
-                        if data.is_empty() {
-                            break;
-                        }
-                        let n = self.writer.write(data)?;
-                        self.state_machine.consume(n);
-                    }
-
                     if *size == 0 {
-                        let space = self.state_machine.space();
+                        let space = loop {
+                            let space = self.state_machine.space();
+                            if space.is_empty() {
+                                let data = self.state_machine.data();
+                                let n = self.writer.write(data)?;
+                                self.state_machine.consume(n);
+                            } else {
+                                break space;
+                            }
+                        };
                         let n = file_data.read(space)?;
                         if n == 0 {
                             self.state = State::Flush;
@@ -254,96 +156,6 @@ where
 
                     self.state = State::FileHeader;
                     return Ok(());
-                }
-                State::WriteEntry {
-                    file_name_size_buffer,
-                    file_name_position,
-                    file_size_buffer,
-                } => {
-                    file_name_size_buffer.write(&mut self.writer)?;
-                    write_all(&mut self.writer, &self.buffer, file_name_position)?;
-                    file_size_buffer.write(&mut self.writer)?;
-
-                    // Resize the scratch space to the requested buffer size.
-                    self.buffer.clear();
-                    self.buffer.resize(BUFFER_SIZE, 0);
-
-                    self.state = State::ReadEntryData {
-                        counter: 0,
-                        key: self.key,
-                        bytes_written: 0,
-                    };
-                }
-                State::ReadEntryData {
-                    counter,
-                    key,
-                    bytes_written,
-                } => {
-                    loop {
-                        let data = self.state_machine.data();
-                        if data.is_empty() {
-                            break;
-                        }
-
-                        let n = self.writer.write(data)?;
-                        self.state_machine.consume(n);
-                    }
-
-                    let n = file_data.read(&mut self.buffer)?;
-                    if n == 0 {
-                        if file_size != *bytes_written {
-                            return Err(Error::FileDataSizeMismatch {
-                                actual: *bytes_written,
-                                expected: file_size,
-                            });
-                        }
-
-                        self.state = State::FileHeader;
-                        return Ok(());
-                    }
-
-                    // We assume that the scratch buffer is smaller than 4 gigabytes.
-                    *bytes_written = bytes_written
-                        .checked_add(u32::try_from(n).expect("too many bytes written"))
-                        .ok_or(Error::FileDataTooLong)?;
-
-                    // TODO: We can possibly be more efficient here.
-                    // If we are able to cast this to a slice of u32s,
-                    // we can encrypt that instead and use this byte-wise impl only at the end.
-                    for byte in self.buffer[..n].iter_mut() {
-                        *byte ^= key.to_le_bytes()[usize::from(*counter)];
-                        if *counter == 3 {
-                            *key = rotate_key(*key);
-                        }
-                        *counter = (*counter + 1) % 4;
-                    }
-
-                    self.state = State::WriteEntryData {
-                        counter: *counter,
-                        key: *key,
-                        bytes_written: *bytes_written,
-
-                        position: 0,
-                        buffer_size: n,
-                    };
-                }
-                State::WriteEntryData {
-                    counter,
-                    key,
-                    bytes_written,
-                    position,
-                    buffer_size,
-                } => {
-                    write_all(&mut self.writer, &self.buffer[..*buffer_size], position)?;
-
-                    self.state = State::ReadEntryData {
-                        counter: *counter,
-                        key: *key,
-                        bytes_written: *bytes_written,
-                    };
-                }
-                _ => {
-                    return Err(Error::InvalidState);
                 }
             }
         }
