@@ -1,32 +1,18 @@
 use super::Error;
+use super::FileHeader;
 use super::ReaderAction;
+use crate::crypt_file_data;
+use crate::crypt_name_bytes;
+use crate::crypt_u32;
 use crate::DEFAULT_KEY;
+use crate::HEADER_LEN;
 use crate::MAGIC;
 use crate::MAGIC_LEN;
 use crate::MAX_FILE_NAME_LEN;
+use crate::U32_LEN;
 use crate::VERSION;
 
 const DEFAULT_BUFFER_CAPACITY: usize = 10 * 1024;
-const HEADER_LEN: usize = MAGIC_LEN + 1;
-const U32_LEN: usize = 4;
-
-/// Decrypt an encrypted u32, and rotate the key as needed.
-fn decrypt_u32(key: &mut u32, mut n: u32) -> u32 {
-    n ^= *key;
-    *key = key.overflowing_mul(7).0.overflowing_add(3).0;
-    n
-}
-
-/// Decrypt the encrypted file data bytes.
-fn decrypt_file_data_bytes(buffer: &mut [u8], key: &mut u32, counter: &mut u8) {
-    for byte in buffer.iter_mut() {
-        *byte ^= key.to_le_bytes()[usize::from(*counter)];
-        if *counter == 3 {
-            *key = key.overflowing_mul(7).0.overflowing_add(3).0;
-        }
-        *counter = (*counter + 1) % 4;
-    }
-}
 
 /// A sans-io reader state machine.
 #[derive(Debug)]
@@ -87,11 +73,6 @@ impl Reader {
         self.buffer.reset();
     }
 
-    /// Returns `true` if the header has been read.
-    pub fn read_header(&mut self) -> bool {
-        self.state != State::Header
-    }
-
     /// Step the state machine, performing the action of reading and validating the header.
     ///
     /// If the header has already been read, `Ok(ReaderAction::Done(()))` is returned and no work is performed.
@@ -99,8 +80,11 @@ impl Reader {
     /// The state machine will automatically read the header is if has not been read.
     /// This will never request a seek.
     pub fn step_read_header(&mut self) -> Result<ReaderAction<()>, Error> {
-        if self.state != State::Header {
-            return Ok(ReaderAction::Done(()));
+        match self.state {
+            State::Header => {}
+            State::FileHeader | State::FileData { .. } => {
+                return Ok(ReaderAction::Done(()));
+            }
         }
 
         let data = self.buffer.data();
@@ -135,7 +119,7 @@ impl Reader {
     ///
     /// This will read the header if it has not been read already.
     /// This may request a seek.
-    /// If you want to skip over the file data, call this again after it returns `ReadAction::Done`.
+    /// If you want to skip over the file data, call this again after it returns `ReaderAction::Done`.
     pub fn step_read_file_header(&mut self) -> Result<ReaderAction<FileHeader>, Error> {
         loop {
             match self.state {
@@ -168,9 +152,9 @@ impl Reader {
             // We check the buffer size above.
             let bytes = data[..U32_LEN].try_into().unwrap();
             let n = u32::from_le_bytes(bytes);
-            let n = decrypt_u32(&mut key, n);
+            let n = crypt_u32(&mut key, n);
             if n > MAX_FILE_NAME_LEN {
-                return Err(Error::FileNameTooLong { len: n });
+                return Err(Error::FileNameTooLongU32 { len: n });
             }
 
             // We check the file name len above.
@@ -184,11 +168,7 @@ impl Reader {
 
         let file_name = {
             let mut bytes = data[U32_LEN..U32_LEN + file_name_len].to_vec();
-            for byte in bytes.iter_mut() {
-                // We mask with 0xFF, this cannot exceed the bounds of a u8.
-                *byte ^= u8::try_from(key & 0xFF).unwrap();
-                key = key.overflowing_mul(7).0.overflowing_add(3).0;
-            }
+            crypt_name_bytes(&mut key, &mut bytes);
 
             // I'm fairly certain these are required to be ASCII, but I forget the source.
             //
@@ -202,7 +182,7 @@ impl Reader {
             let range = index..index + U32_LEN;
             let bytes = data[range].try_into().unwrap();
             let n = u32::from_le_bytes(bytes);
-            decrypt_u32(&mut key, n)
+            crypt_u32(&mut key, n)
         };
 
         // This should not be able to overflow a u64.
@@ -269,7 +249,7 @@ impl Reader {
         let output_buffer = &mut output_buffer[..len];
 
         output_buffer.copy_from_slice(&data[..len]);
-        decrypt_file_data_bytes(output_buffer, key, counter);
+        crypt_file_data(key, counter, output_buffer);
         *remaining -= len_u32;
         self.buffer.consume(len);
         self.position += u64::from(len_u32);
@@ -284,18 +264,8 @@ impl Default for Reader {
     }
 }
 
-/// A file header
-#[derive(Debug)]
-pub struct FileHeader {
-    /// The file name
-    pub name: String,
-
-    /// The file data size.
-    pub size: u32,
-}
-
 /// The parse state
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone)]
 enum State {
     Header,
     FileHeader,

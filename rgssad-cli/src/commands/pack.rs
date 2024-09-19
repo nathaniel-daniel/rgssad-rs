@@ -26,10 +26,10 @@ pub fn exec(options: Options) -> anyhow::Result<()> {
     let mut writer = rgssad::Writer::new(&mut output_file);
     writer.write_header()?;
 
-    for entry in WalkDir::new(&options.input).sort_by_file_name() {
-        let entry = entry?;
-        let file_type = entry.file_type();
-        let path = entry.path();
+    for file_entry in WalkDir::new(&options.input).sort_by_file_name() {
+        let file_entry = file_entry?;
+        let file_type = file_entry.file_type();
+        let path = file_entry.path();
 
         if file_type.is_dir() {
             continue;
@@ -56,7 +56,7 @@ pub fn exec(options: Options) -> anyhow::Result<()> {
         let file_size = u32::try_from(file_metadata.len())
             .with_context(|| format!("file \"{}\" is too large", path.display()))?;
 
-        writer.write_entry(relative_path_str, file_size, file)?;
+        writer.write_file(relative_path_str, file_size, file)?;
     }
     writer.finish()?;
 

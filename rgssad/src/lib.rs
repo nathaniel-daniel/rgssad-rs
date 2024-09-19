@@ -4,12 +4,11 @@
 pub mod reader;
 /// sans-io state machines for reading and writing.
 pub mod sans_io;
-/// The archive writer.
-pub mod writer;
-
 /// Tokio adapters for archive readers and writers.
 #[cfg(feature = "tokio")]
 pub mod tokio;
+/// The archive writer.
+pub mod writer;
 
 pub use self::reader::Reader;
 #[cfg(feature = "tokio")]
@@ -20,14 +19,24 @@ pub use self::writer::Writer;
 
 /// The len of the magic number.
 const MAGIC_LEN: usize = 7;
-/// The magic number
+/// The magic number.
 const MAGIC: [u8; MAGIC_LEN] = *b"RGSSAD\0";
 /// The file version
 const VERSION: u8 = 1;
-/// The default encryption key
+/// The size of the header.
+const HEADER_LEN: usize = MAGIC_LEN + 1;
+/// The default encryption key.
 const DEFAULT_KEY: u32 = 0xDEADCAFE;
-/// The maximum file name len
+/// The maximum file name len.
+///
+/// This was chosen arbirtarily,
+/// off of Linux's common 4096 max path length.
+/// Note that the real limit for this value is much lower,
+/// as this format is for a Windows application and
+/// Windows' max path length is 255.
 const MAX_FILE_NAME_LEN: u32 = 4096;
+/// The size of a u32, in bytes.
+const U32_LEN: usize = 4;
 
 /// The library error type
 #[derive(Debug)]
@@ -38,18 +47,6 @@ pub enum Error {
     /// Invalid internal state, user error
     InvalidState,
 
-    /// The file name was too long
-    FileNameTooLong {
-        /// The error
-        error: std::num::TryFromIntError,
-    },
-
-    /// The provided file size does not match the file data's size.
-    FileDataSizeMismatch { actual: u32, expected: u32 },
-
-    /// The file data was too long
-    FileDataTooLong,
-
     /// There was an error with the sans-io state machine.
     SansIo(self::sans_io::Error),
 }
@@ -59,14 +56,6 @@ impl std::fmt::Display for Error {
         match self {
             Self::Io(_error) => write!(f, "an I/O error occured"),
             Self::InvalidState => write!(f, "user error, invalid internal state"),
-
-            Self::FileNameTooLong { .. } => write!(f, "the file name is too long"),
-
-            Self::FileDataSizeMismatch { actual, expected } => write!(
-                f,
-                "file data size mismatch, expected {expected} but got {actual}"
-            ),
-            Self::FileDataTooLong => write!(f, "file data too long"),
             Self::SansIo(error) => error.fmt(f),
         }
     }
@@ -76,8 +65,6 @@ impl std::error::Error for Error {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::Io(error) => Some(error),
-            Self::FileNameTooLong { error } => Some(error),
-
             Self::SansIo(error) => error.source(),
             _ => None,
         }
@@ -93,6 +80,36 @@ impl From<std::io::Error> for Error {
 impl From<self::sans_io::Error> for Error {
     fn from(error: self::sans_io::Error) -> Self {
         Self::SansIo(error)
+    }
+}
+
+/// Encrypt or decrypt an u32, and rotate the key as needed.
+fn crypt_u32(key: &mut u32, mut n: u32) -> u32 {
+    n ^= *key;
+    *key = key.overflowing_mul(7).0.overflowing_add(3).0;
+    n
+}
+
+/// Encrypt of decrypt a file name, and rotate the key as needed.
+fn crypt_name_bytes(key: &mut u32, bytes: &mut [u8]) {
+    for byte in bytes.iter_mut() {
+        // We mask with 0xFF, this cannot exceed the bounds of a u8.
+        *byte ^= u8::try_from(*key & 0xFF).unwrap();
+        *key = key.overflowing_mul(7).0.overflowing_add(3).0;
+    }
+}
+
+/// Encrypt or decrypt the encrypted file data, and rotate the key as needed.
+fn crypt_file_data(key: &mut u32, counter: &mut u8, buffer: &mut [u8]) {
+    // TODO: We can possibly be more efficient here.
+    // If we are able to cast this to a slice of u32s,
+    // we can crypt that instead and use this byte-wise impl only at the end.
+    for byte in buffer.iter_mut() {
+        *byte ^= key.to_le_bytes()[usize::from(*counter)];
+        if *counter == 3 {
+            *key = key.overflowing_mul(7).0.overflowing_add(3).0;
+        }
+        *counter = (*counter + 1) % 4;
     }
 }
 
@@ -246,7 +263,7 @@ mod test {
         writer.write_header().expect("failed to write header");
         for (file_name, file_data) in files.iter() {
             writer
-                .write_entry(
+                .write_file(
                     file_name,
                     u32::try_from(file_data.len()).expect("file data too large"),
                     &**file_data,
@@ -330,7 +347,7 @@ mod test {
             let mut reader = &**file_data;
 
             loop {
-                match writer.write_entry(file_name, len, &mut reader) {
+                match writer.write_file(file_name, len, &mut reader) {
                     Ok(()) => break,
                     Err(Error::Io(error)) if error.kind() == std::io::ErrorKind::WouldBlock => {
                         new_file.add_fuel(1);
@@ -354,6 +371,10 @@ mod test {
         let file = reader.into_inner();
 
         // Ensure archives are byte-for-byte equivalent.
-        assert!(&new_file.inner.borrow().0 == file.get_ref());
+        let new_file = new_file.inner.borrow();
+        let new_file = &new_file.0;
+        let file = file.get_ref();
+        dbg!(new_file.len(), file.len());
+        assert!(new_file == file);
     }
 }

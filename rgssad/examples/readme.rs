@@ -24,7 +24,7 @@ fn main() {
     writer.write_header().expect("failed to write header");
     for (file_name, file_data) in files.iter() {
         writer
-            .write_entry(
+            .write_file(
                 file_name,
                 u32::try_from(file_data.len()).expect("file data too large"),
                 &**file_data,
