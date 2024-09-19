@@ -1,9 +1,6 @@
-mod adapters;
 pub mod reader;
 pub mod writer;
 
-use self::adapters::AsyncRead2Read;
-use self::adapters::AsyncWrite2Write;
 pub use self::reader::TokioReader;
 pub use self::writer::TokioWriter;
 
@@ -89,7 +86,7 @@ mod test {
         writer.write_header().await.expect("failed to write header");
         for (file_name, file_data) in files.iter() {
             writer
-                .write_entry(
+                .write_file(
                     file_name,
                     u32::try_from(file_data.len()).expect("file data too large"),
                     &**file_data,
