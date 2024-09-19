@@ -59,7 +59,7 @@ where
             let mut read_adapter = AsyncRead2Read::new(&mut reader);
             read_adapter.set_waker(cx.waker());
 
-            match self.writer.write_entry(file_name, file_len, read_adapter) {
+            match self.writer.write_file(file_name, file_len, read_adapter) {
                 Ok(()) => Poll::Ready(Ok(())),
                 Err(Error::Io(error)) if error.kind() == std::io::ErrorKind::WouldBlock => {
                     Poll::Pending

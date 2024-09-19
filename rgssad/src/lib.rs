@@ -263,7 +263,7 @@ mod test {
         writer.write_header().expect("failed to write header");
         for (file_name, file_data) in files.iter() {
             writer
-                .write_entry(
+                .write_file(
                     file_name,
                     u32::try_from(file_data.len()).expect("file data too large"),
                     &**file_data,
@@ -347,7 +347,7 @@ mod test {
             let mut reader = &**file_data;
 
             loop {
-                match writer.write_entry(file_name, len, &mut reader) {
+                match writer.write_file(file_name, len, &mut reader) {
                     Ok(()) => break,
                     Err(Error::Io(error)) if error.kind() == std::io::ErrorKind::WouldBlock => {
                         new_file.add_fuel(1);

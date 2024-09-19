@@ -78,13 +78,13 @@ where
         }
     }
 
-    /// Write an entry.
+    /// Write a file.
     ///
-    /// An entry is composed of a name, size, and data.
+    /// An file is composed of a name (path), size, and data.
     /// This function may be retried.
     /// To retry, call this function with the same arguments.
     /// Note that if anything other than an I/O error occurs, the written bytes are likely corrupted.
-    pub fn write_entry<R>(
+    pub fn write_file<R>(
         &mut self,
         file_name: &str,
         file_size: u32,
