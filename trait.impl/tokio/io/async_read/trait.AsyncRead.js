@@ -1,0 +1,3 @@
+(function() {var implementors = {
+"rgssad":[["impl&lt;'a, R&gt; AsyncRead for <a class=\"struct\" href=\"rgssad/tokio/reader/struct.File.html\" title=\"struct rgssad::tokio::reader::File\">File</a>&lt;'a, R&gt;<div class=\"where\">where\n    <a class=\"primitive\" href=\"https://doc.rust-lang.org/1.81.0/std/primitive.reference.html\">&amp;'a mut R</a>: AsyncRead,</div>"]]
+};if (window.register_implementors) {window.register_implementors(implementors);} else {window.pending_implementors = implementors;}})()

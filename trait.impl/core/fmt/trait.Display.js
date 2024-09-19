@@ -1,0 +1,3 @@
+(function() {var implementors = {
+"rgssad":[["impl <a class=\"trait\" href=\"https://doc.rust-lang.org/1.81.0/core/fmt/trait.Display.html\" title=\"trait core::fmt::Display\">Display</a> for <a class=\"enum\" href=\"rgssad/enum.Error.html\" title=\"enum rgssad::Error\">Error</a>"],["impl <a class=\"trait\" href=\"https://doc.rust-lang.org/1.81.0/core/fmt/trait.Display.html\" title=\"trait core::fmt::Display\">Display</a> for <a class=\"enum\" href=\"rgssad/sans_io/enum.Error.html\" title=\"enum rgssad::sans_io::Error\">Error</a>"]]
+};if (window.register_implementors) {window.register_implementors(implementors);} else {window.pending_implementors = implementors;}})()

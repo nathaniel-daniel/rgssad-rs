@@ -1,0 +1,1 @@
+searchState.loadedDescShard("rgssad_wasm", 0, "A file from a <code>Reader</code>.\nAn Archive Reader\nGet the file data\nReturns the argument unchanged.\nReturns the argument unchanged.\nCalls <code>U::from(self)</code>.\nCalls <code>U::from(self)</code>.\nGet the file name.\nMake a new <code>Reader</code>.\nGet the next file.")
