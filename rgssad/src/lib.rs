@@ -4,6 +4,9 @@
 pub mod reader;
 /// sans-io state machines for reading and writing.
 pub mod sans_io;
+/// The archive writer.
+pub mod writer;
+
 /// Tokio adapters for archive readers and writers.
 #[cfg(feature = "tokio")]
 pub mod tokio;
