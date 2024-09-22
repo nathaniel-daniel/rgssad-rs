@@ -23,7 +23,7 @@ pub struct Reader {
     need_seek: bool,
     position: u64,
     next_file_position: u64,
-    pub(crate) key: u32,
+    key: u32,
 }
 
 impl Reader {

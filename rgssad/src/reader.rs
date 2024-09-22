@@ -42,7 +42,7 @@ where
 {
     /// Read and validate the header.
     ///
-    /// After this returns, call [`Reader::read_file`] to read through entries.
+    /// After this returns, call [`Reader::read_file`] to read through files.
     /// This function is a NOP if the header has already been read.
     pub fn read_header(&mut self) -> Result<(), Error> {
         loop {

@@ -1,7 +1,9 @@
 mod reader;
+mod reader3;
 mod writer;
 
 pub use self::reader::Reader;
+pub use self::reader3::Reader3;
 pub use self::writer::Writer;
 use crate::MAX_FILE_NAME_LEN;
 
@@ -97,6 +99,19 @@ impl<T> ReaderAction<T> {
             Self::Done(v) => ReaderAction::Done(f(v)),
         }
     }
+}
+
+/// An action that should be performed for the reader state machine, or a result.
+#[derive(Debug, Copy, Clone)]
+pub enum ReaderAction3<T> {
+    /// Read at least the given number of bytes before stepping again.
+    Read(usize),
+
+    /// Seek to the given position before stepping again.
+    Seek(u64),
+
+    /// The stepping function is done.
+    Done(T),
 }
 
 /// An action that should be performed for the writer state machine, or a result..

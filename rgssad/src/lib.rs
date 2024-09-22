@@ -2,6 +2,8 @@
 
 /// The archive reader.
 pub mod reader;
+/// The archive reader for a vx ace game.
+pub mod reader3;
 /// sans-io state machines for reading and writing.
 pub mod sans_io;
 /// Tokio adapters for archive readers and writers.
@@ -11,6 +13,7 @@ pub mod tokio;
 pub mod writer;
 
 pub use self::reader::Reader;
+pub use self::reader3::Reader3;
 #[cfg(feature = "tokio")]
 pub use self::tokio::TokioReader;
 #[cfg(feature = "tokio")]
@@ -125,6 +128,8 @@ mod test {
 
     pub const VX_TEST_GAME: &str =
         "test_data/RPGMakerVXTestGame-Export/RPGMakerVXTestGame/Game.rgss2a";
+    pub const VX_ACE_TEST_GAME: &str =
+        "test_data/RPGMakerVXAceGame-Export/RPGMakerVXAceGame/Game.rgss3a";
 
     #[derive(Debug, Clone)]
     struct SlowReader<R> {
@@ -376,5 +381,43 @@ mod test {
         let file = file.get_ref();
         dbg!(new_file.len(), file.len());
         assert!(new_file == file);
+    }
+
+    #[test]
+    fn reader3_writer3_smoke() {
+        let file = std::fs::read(VX_ACE_TEST_GAME).expect("failed to open archive");
+        let file = std::io::Cursor::new(file);
+        let mut reader = Reader3::new(file);
+        reader.read_header().expect("failed to read header");
+
+        /*
+        // Read entire archive into a Vec.
+        let mut files = Vec::new();
+        while let Some(mut file) = reader.read_file().expect("failed to read file") {
+            let mut buffer = Vec::new();
+            file.read_to_end(&mut buffer).expect("failed to read file");
+            files.push((file.name().to_string(), buffer));
+        }
+
+        // Write all files into a new archive.
+        let mut new_file = Vec::new();
+        let mut writer = Writer::new(&mut new_file);
+        writer.write_header().expect("failed to write header");
+        for (file_name, file_data) in files.iter() {
+            writer
+                .write_file(
+                    file_name,
+                    u32::try_from(file_data.len()).expect("file data too large"),
+                    &**file_data,
+                )
+                .expect("failed to write file");
+        }
+        writer.finish().expect("failed to flush");
+
+        let file = reader.into_inner();
+
+        // Ensure archives are byte-for-byte equivalent.
+        assert!(&new_file == file.get_ref());
+        */
     }
 }
