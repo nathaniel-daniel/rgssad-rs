@@ -7,7 +7,7 @@ use crate::crypt_u32;
 use crate::DEFAULT_KEY;
 use crate::HEADER_LEN;
 use crate::MAGIC;
-use crate::MAGIC_LEN;
+use crate::MAGIC_LEN_USIZE;
 use crate::MAX_FILE_NAME_LEN;
 use crate::U32_LEN;
 use crate::VERSION;
@@ -95,12 +95,12 @@ impl Reader {
         }
 
         // We validate the size above.
-        let magic = *data.first_chunk::<MAGIC_LEN>().unwrap();
+        let magic = *data.first_chunk::<MAGIC_LEN_USIZE>().unwrap();
         if magic != MAGIC {
             return Err(Error::InvalidMagic { magic });
         }
 
-        let version = data[MAGIC_LEN];
+        let version = data[MAGIC_LEN_USIZE];
         if version != VERSION {
             return Err(Error::InvalidVersion { version });
         }

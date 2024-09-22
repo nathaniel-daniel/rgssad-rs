@@ -6,7 +6,7 @@ use crate::crypt_u32;
 use crate::DEFAULT_KEY;
 use crate::HEADER_LEN;
 use crate::MAGIC;
-use crate::MAGIC_LEN;
+use crate::MAGIC_LEN_USIZE;
 use crate::MAX_FILE_NAME_LEN;
 use crate::U32_LEN;
 use crate::VERSION;
@@ -70,8 +70,8 @@ impl Writer {
             return Ok(WriterAction::Write);
         }
 
-        space[..MAGIC_LEN].copy_from_slice(&MAGIC);
-        space[MAGIC_LEN] = VERSION;
+        space[..MAGIC_LEN_USIZE].copy_from_slice(&MAGIC);
+        space[MAGIC_LEN_USIZE] = VERSION;
         self.buffer.fill(HEADER_LEN);
 
         self.state = State::FileHeader;

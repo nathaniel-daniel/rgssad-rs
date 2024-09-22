@@ -1,10 +1,18 @@
 use super::Error;
 use super::ReaderAction3;
+use crate::KEY_LEN;
+use crate::KEY_LEN_USIZE;
 use crate::MAGIC;
 use crate::MAGIC_LEN;
+use crate::MAGIC_LEN_USIZE;
+use crate::VERSION3;
+use crate::VERSION_LEN;
+use crate::VERSION_LEN_USIZE;
 
 const DEFAULT_BUFFER_CAPACITY: usize = 10 * 1024;
-const HEADER_LEN3: usize = 8;
+const HEADER_LEN3: u8 = MAGIC_LEN + VERSION_LEN + KEY_LEN;
+const HEADER_LEN3_USIZE: usize = HEADER_LEN3 as usize;
+const HEADER_LEN3_U64: u64 = HEADER_LEN3 as u64;
 
 /// A sans-io reader state machine.
 #[derive(Debug)]
@@ -12,6 +20,7 @@ pub struct Reader3 {
     buffer: oval::Buffer,
 
     state: State,
+    position: u64,
 }
 
 impl Reader3 {
@@ -21,6 +30,7 @@ impl Reader3 {
             buffer: oval::Buffer::with_capacity(DEFAULT_BUFFER_CAPACITY),
 
             state: State::Header,
+            position: 0,
         }
     }
 
@@ -45,7 +55,7 @@ impl Reader3 {
     pub fn step_read_header(&mut self) -> Result<ReaderAction3<()>, Error> {
         match self.state {
             State::Header => {}
-            State::FileHeader | State::FileData => {
+            State::FileHeader { .. } | State::FileData => {
                 return Ok(ReaderAction3::Done(()));
             }
         }
@@ -53,15 +63,28 @@ impl Reader3 {
         let data = self.buffer.data();
 
         let data_len = data.len();
-        if data_len < HEADER_LEN3 {
-            return Ok(ReaderAction3::Read(HEADER_LEN3 - data_len));
+        if data_len < HEADER_LEN3_USIZE {
+            return Ok(ReaderAction3::Read(HEADER_LEN3_USIZE - data_len));
         }
 
         // We validate the size above.
-        let (magic, data) = data.split_first_chunk::<MAGIC_LEN>().unwrap();
+        let (magic, data) = data.split_first_chunk::<MAGIC_LEN_USIZE>().unwrap();
         if *magic != MAGIC {
             return Err(Error::InvalidMagic { magic: *magic });
         }
+
+        let (version, data) = data.split_first_chunk::<VERSION_LEN_USIZE>().unwrap();
+        let version = version[0];
+        if version != VERSION3 {
+            return Err(Error::InvalidVersion { version });
+        }
+        let (key, _data) = data.split_first_chunk::<KEY_LEN_USIZE>().unwrap();
+        let mut key = u32::from_le_bytes(*key);
+        key = key.overflowing_mul(9).0.overflowing_add(3).0;
+
+        self.buffer.consume(HEADER_LEN3_USIZE);
+        self.position = HEADER_LEN3_U64;
+        self.state = State::FileHeader { key };
 
         Ok(ReaderAction3::Done(()))
     }
@@ -77,6 +100,6 @@ impl Default for Reader3 {
 #[derive(Debug, Copy, Clone)]
 enum State {
     Header,
-    FileHeader,
+    FileHeader { key: u32 },
     FileData,
 }

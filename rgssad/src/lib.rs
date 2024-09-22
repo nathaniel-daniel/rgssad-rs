@@ -21,13 +21,19 @@ pub use self::tokio::TokioWriter;
 pub use self::writer::Writer;
 
 /// The len of the magic number.
-const MAGIC_LEN: usize = 7;
+const MAGIC_LEN: u8 = 7;
+/// The len of the magic number, as a usize.
+const MAGIC_LEN_USIZE: usize = MAGIC_LEN as usize;
 /// The magic number.
-const MAGIC: [u8; MAGIC_LEN] = *b"RGSSAD\0";
-/// The file version
+const MAGIC: [u8; MAGIC_LEN_USIZE] = *b"RGSSAD\0";
+/// The length of a version in bytes.
+const VERSION_LEN: u8 = 1;
+/// The length of a version in bytes, as a usize.
+const VERSION_LEN_USIZE: usize = VERSION_LEN as usize;
+/// The file version for rgssad and rgss2a files.
 const VERSION: u8 = 1;
 /// The size of the header.
-const HEADER_LEN: usize = MAGIC_LEN + 1;
+const HEADER_LEN: usize = MAGIC_LEN_USIZE + VERSION_LEN_USIZE;
 /// The default encryption key.
 const DEFAULT_KEY: u32 = 0xDEADCAFE;
 /// The maximum file name len.
@@ -40,6 +46,12 @@ const DEFAULT_KEY: u32 = 0xDEADCAFE;
 const MAX_FILE_NAME_LEN: u32 = 4096;
 /// The size of a u32, in bytes.
 const U32_LEN: usize = 4;
+/// The file version for rgss3a files.
+const VERSION3: u8 = 3;
+/// The length of a key in bytes.
+const KEY_LEN: u8 = 4;
+/// The length of a key in bytes, as a usize.
+const KEY_LEN_USIZE: usize = KEY_LEN as usize;
 
 /// The library error type
 #[derive(Debug)]
