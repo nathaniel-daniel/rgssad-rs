@@ -1,3 +1,4 @@
+[graph]
 targets = [
     { triple = "x86_64-unknown-linux-gnu" },
     { triple = "x86_64-unknown-linux-musl" },
@@ -6,19 +7,12 @@ targets = [
 ]
 
 [advisories]
-vulnerability = "deny"
-unmaintained = "deny"
-notice = "deny"
 ignore = []
 
 [licenses]
-unlicensed = "deny"
-copyleft = "warn"
-allow-osi-fsf-free = "neither"
 confidence-threshold = 0.93
-default = "deny"
 private = { ignore = true }
-allow = [ "Apache-2.0", "MIT", "Zlib", "ISC", "MPL-2.0", "OpenSSL", "BSD-3-Clause", "Unicode-DFS-2016" ]
+allow = [ "Apache-2.0", "MIT", "BSD-3-Clause", "Unicode-DFS-2016" ]
 
 [[licenses.clarify]]
 name = "ring"
@@ -45,11 +39,7 @@ license-files = [
 [bans]
 multiple-versions = "deny"
 highlight = "all"
-skip = [    
-    # Blocked on ecosystem updating windows-sys to 0.45.0
-    { name = "windows-sys", version = "0.42.0" },
-    { name = "windows_x86_64_msvc", version = "0.42.0" },
-]
+skip = []
 
 [sources]
 unknown-registry = "warn"
