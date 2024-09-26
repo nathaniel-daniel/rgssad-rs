@@ -404,6 +404,39 @@ mod test {
         dbg!(new_file.len(), file.len());
         assert!(new_file == file);
     }
+    
+    #[test]
+    fn slow_reader3() {
+        let file = std::fs::read(VX_ACE_TEST_GAME).expect("failed to open archive");
+        let file = std::io::Cursor::new(file);
+        let file = SlowReader::new(file);
+        let mut reader = Reader3::new(file.clone());
+
+        loop {
+            match reader.read_header() {
+                Ok(()) => break,
+                Err(Error::Io(error)) if error.kind() == std::io::ErrorKind::WouldBlock => {}
+                Err(error) => {
+                    panic!("Error: {error:?}");
+                }
+            }
+
+            file.add_fuel(1);
+        }
+
+        loop {
+            match reader.read_file() {
+                Ok(Some(_file)) => {}
+                Ok(None) => break,
+                Err(Error::Io(error)) if error.kind() == std::io::ErrorKind::WouldBlock => {}
+                Err(error) => {
+                    panic!("Error: {error:?}");
+                }
+            }
+
+            file.add_fuel(1);
+        }
+    }
 
     #[test]
     fn reader3_writer3_smoke() {
