@@ -1,3 +1,4 @@
+use crate::sans_io::FileHeader;
 use crate::sans_io::ReaderAction;
 use crate::Error;
 use std::io::Read;
@@ -83,12 +84,10 @@ where
                     self.state_machine.finish_seek();
                 }
                 ReaderAction::Done(file_header) => {
-                    let size = file_header.size;
                     return Ok(Some(File {
-                        name: file_header.name,
-                        size,
                         state_machine: &mut self.state_machine,
                         reader: &mut self.reader,
+                        header: file_header,
                     }));
                 }
             }
@@ -99,25 +98,21 @@ where
 /// An file in an rgssad file
 #[derive(Debug)]
 pub struct File<'a, R> {
-    /// The file path.
-    name: String,
-
-    /// The file size.
-    size: u32,
-
     reader: &'a mut R,
     state_machine: &'a mut crate::sans_io::Reader,
+
+    header: FileHeader,
 }
 
 impl<R> File<'_, R> {
     /// The file path
     pub fn name(&self) -> &str {
-        self.name.as_str()
+        self.header.name.as_str()
     }
 
     /// The file size
     pub fn size(&self) -> u32 {
-        self.size
+        self.header.size
     }
 }
 
