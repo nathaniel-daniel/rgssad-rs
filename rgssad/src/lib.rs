@@ -404,7 +404,7 @@ mod test {
         dbg!(new_file.len(), file.len());
         assert!(new_file == file);
     }
-    
+
     #[test]
     fn slow_reader3() {
         let file = std::fs::read(VX_ACE_TEST_GAME).expect("failed to open archive");

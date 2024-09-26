@@ -146,3 +146,40 @@ where
         }
     }
 }
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crate::test::*;
+
+    #[test]
+    fn reader3_smoke() {
+        let file = std::fs::read(VX_ACE_TEST_GAME).expect("failed to open archive");
+        let file = std::io::Cursor::new(file);
+        let mut reader = Reader3::new(file);
+        reader.read_header().expect("failed to read header");
+
+        // Ensure skipping works.
+        let mut num_skipped_entries = 0;
+        while let Some(_file) = reader.read_file().expect("failed to read file") {
+            num_skipped_entries += 1;
+        }
+
+        // Reset position and recreate reader.
+        let mut file = reader.into_inner();
+        file.seek(SeekFrom::Start(0))
+            .expect("failed to seek to start");
+        let mut reader = Reader3::new(file);
+        reader.read_header().expect("failed to read header");
+
+        // Read entire archive into a Vec.
+        let mut files = Vec::new();
+        while let Some(mut file) = reader.read_file().expect("failed to read file") {
+            let mut buffer = Vec::new();
+            file.read_to_end(&mut buffer).expect("failed to read file");
+            files.push((file.name().to_string(), buffer));
+        }
+
+        assert!(files.len() == num_skipped_entries);
+    }
+}
