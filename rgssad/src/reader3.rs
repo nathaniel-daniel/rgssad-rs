@@ -35,6 +35,14 @@ impl<R> Reader3<R> {
     pub fn get_mut(&mut self) -> &mut R {
         &mut self.reader
     }
+
+    /// Get the key.
+    ///
+    /// # Returns
+    /// This will return `None` if the header has not been read.
+    pub fn key(&self) -> Option<u32> {
+        self.state_machine.key()
+    }
 }
 
 impl<R> Reader3<R>
@@ -181,5 +189,8 @@ mod test {
         }
 
         assert!(files.len() == num_skipped_entries);
+        
+        let key = reader.key().expect("missing key");
+        assert!(key == 0x694E);
     }
 }

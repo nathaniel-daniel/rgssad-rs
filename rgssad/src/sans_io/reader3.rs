@@ -25,7 +25,7 @@ pub struct Reader3 {
 
     state: State,
     position: u64,
-    key: u32,
+    key: Option<u32>,
     next_file_header_position: Option<u64>,
 }
 
@@ -37,7 +37,7 @@ impl Reader3 {
 
             state: State::Header,
             position: 0,
-            key: 0,
+            key: None,
             next_file_header_position: Some(HEADER_LEN3_U64),
         }
     }
@@ -61,6 +61,14 @@ impl Reader3 {
     pub fn finish_seek(&mut self, position: u64) {
         self.position = position;
         self.buffer.reset();
+    }
+
+    /// Get the key.
+    ///
+    /// # Returns
+    /// This will return `None` if the header has not been read.
+    pub fn key(&self) -> Option<u32> {
+        self.key
     }
 
     /// Step the state machine, performing the action of reading and validating the header.
@@ -101,7 +109,7 @@ impl Reader3 {
 
         self.buffer.consume(HEADER_LEN3_USIZE);
         self.position = HEADER_LEN3_U64;
-        self.key = key;
+        self.key = Some(key);
         self.state = State::FileHeader;
 
         Ok(ReaderAction3::Done(()))
@@ -125,6 +133,8 @@ impl Reader3 {
                 State::FileHeader | State::FileData { .. } => break,
             }
         }
+        // The key will be always be `Some` here, since we must have read the header by now.
+        let key = self.key.unwrap();
 
         // Seek if needed.
         // This is required since we may have seeked and read some file data.
@@ -149,7 +159,7 @@ impl Reader3 {
 
         let (offset, data) = data.split_first_chunk::<U32_LEN>().unwrap();
         let mut offset = u32::from_le_bytes(*offset);
-        offset ^= self.key;
+        offset ^= key;
 
         if offset == 0 {
             let expected_size_u64 =
@@ -168,15 +178,15 @@ impl Reader3 {
 
         let (size, data) = data.split_first_chunk::<U32_LEN>().unwrap();
         let mut size = u32::from_le_bytes(*size);
-        size ^= self.key;
+        size ^= key;
 
         let (file_key, data) = data.split_first_chunk::<U32_LEN>().unwrap();
         let mut file_key = u32::from_le_bytes(*file_key);
-        file_key ^= self.key;
+        file_key ^= key;
 
         let (name_len, data) = data.split_first_chunk::<U32_LEN>().unwrap();
         let mut name_len = u32::from_le_bytes(*name_len);
-        name_len ^= self.key;
+        name_len ^= key;
         let name_len_usize = usize::try_from(name_len).expect("name size cannot fit in a `usize`");
 
         expected_size += name_len_usize;
@@ -185,7 +195,7 @@ impl Reader3 {
         }
 
         let mut name_bytes = data[..name_len_usize].to_vec();
-        crypt_name_bytes3(self.key, &mut name_bytes);
+        crypt_name_bytes3(key, &mut name_bytes);
         let name =
             String::from_utf8(name_bytes).map_err(|error| Error::InvalidFileName { error })?;
 
@@ -258,7 +268,7 @@ impl Reader3 {
             u64::from(file_header.size).saturating_sub(relative_position)
         };
         let remaining_usize =
-            usize::try_from(remaining).expect("`remaining` cannot fit in a `usize`");
+            usize::try_from(remaining).expect("remaining cannot fit in a `usize`");
 
         if remaining == 0 {
             return Ok(ReaderAction3::Done(0));
