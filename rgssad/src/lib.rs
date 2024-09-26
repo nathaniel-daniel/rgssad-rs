@@ -105,7 +105,7 @@ fn crypt_u32(key: &mut u32, mut n: u32) -> u32 {
     n
 }
 
-/// Encrypt of decrypt a file name, and rotate the key as needed.
+/// Encrypt or decrypt a file name, and rotate the key as needed.
 fn crypt_name_bytes(key: &mut u32, bytes: &mut [u8]) {
     for byte in bytes.iter_mut() {
         // We mask with 0xFF, this cannot exceed the bounds of a u8.
@@ -125,6 +125,16 @@ fn crypt_file_data(key: &mut u32, counter: &mut u8, buffer: &mut [u8]) {
             *key = key.overflowing_mul(7).0.overflowing_add(3).0;
         }
         *counter = (*counter + 1) % 4;
+    }
+}
+
+/// Encrypt or decrypt a file name for version 3 archives.
+fn crypt_name_bytes3(key: u32, bytes: &mut [u8]) {
+    // TODO: We can possibly be more efficient here.
+    // If we are able to cast this to a slice of u32s,
+    // we can crypt that instead and use this byte-wise impl only at the end.
+    for (i, byte) in bytes.iter_mut().enumerate() {
+        *byte ^= key.to_le_bytes()[i % 4];
     }
 }
 
@@ -402,7 +412,6 @@ mod test {
         let mut reader = Reader3::new(file);
         reader.read_header().expect("failed to read header");
 
-        /*
         // Read entire archive into a Vec.
         let mut files = Vec::new();
         while let Some(mut file) = reader.read_file().expect("failed to read file") {
@@ -411,6 +420,7 @@ mod test {
             files.push((file.name().to_string(), buffer));
         }
 
+        /*
         // Write all files into a new archive.
         let mut new_file = Vec::new();
         let mut writer = Writer::new(&mut new_file);

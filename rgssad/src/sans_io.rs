@@ -114,6 +114,25 @@ pub enum ReaderAction3<T> {
     Done(T),
 }
 
+impl<T> ReaderAction3<T> {
+    /// Returns true if this is a `Done` variant.
+    pub fn is_done(&self) -> bool {
+        matches!(self, Self::Done(_))
+    }
+
+    /// Map the done variant.
+    fn map_done<F, O>(self, f: F) -> ReaderAction3<O>
+    where
+        F: FnOnce(T) -> O,
+    {
+        match self {
+            Self::Read(n) => ReaderAction3::Read(n),
+            Self::Seek(p) => ReaderAction3::Seek(p),
+            Self::Done(v) => ReaderAction3::Done(f(v)),
+        }
+    }
+}
+
 /// An action that should be performed for the writer state machine, or a result..
 #[derive(Debug, Copy, Clone)]
 pub enum WriterAction<T> {
@@ -150,4 +169,20 @@ pub struct FileHeader {
 
     /// The file data size.
     pub size: u32,
+}
+
+/// A version 3 file header
+#[derive(Debug)]
+pub struct FileHeader3 {
+    /// The file name
+    pub name: String,
+
+    /// The file data size.
+    pub size: u32,
+
+    /// The file key
+    pub key: u32,
+
+    /// The file offset
+    pub offset: u32,
 }
