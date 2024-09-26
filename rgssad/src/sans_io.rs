@@ -1,6 +1,7 @@
 mod reader;
 mod reader3;
 mod writer;
+mod writer3;
 
 pub use self::reader::Reader;
 pub use self::reader3::Reader3;
