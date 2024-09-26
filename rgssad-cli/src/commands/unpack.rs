@@ -3,6 +3,8 @@ use anyhow::ensure;
 use anyhow::Context;
 use std::fs::File;
 use std::io::Read;
+use std::io::Seek;
+use std::io::SeekFrom;
 use std::io::Write;
 use std::path::Component as PathComponent;
 use std::path::Path;
@@ -26,7 +28,7 @@ pub struct Options {
 
 pub fn exec(options: Options) -> anyhow::Result<()> {
     let file = File::open(options.input)?;
-    let mut reader = rgssad::Reader::new(file);
+    let mut reader = Archive::new(file)?;
     reader.read_header()?;
 
     std::fs::create_dir_all(&options.output).with_context(|| {
@@ -128,4 +130,78 @@ fn extract_file(entry: &mut impl Read, out_path: &Path) -> anyhow::Result<()> {
     file.sync_all()?;
 
     Ok(())
+}
+
+#[derive(Debug)]
+enum Archive<R> {
+    V1(rgssad::Reader<R>),
+    V3(rgssad::Reader3<R>),
+}
+
+impl<R> Archive<R>
+where
+    R: Read + Seek,
+{
+    /// Make a new archive.
+    pub fn new(mut file: R) -> anyhow::Result<Self> {
+        let mut buffer = [0; 8];
+        file.read_exact(&mut buffer)?;
+        file.seek(SeekFrom::Start(0))?;
+
+        match &buffer {
+            b"RGSSAD\x00\x01" => Ok(Self::V1(rgssad::Reader::new(file))),
+            b"RGSSAD\x00\x03" => Ok(Self::V3(rgssad::Reader3::new(file))),
+            _ => bail!("unknown magic \"{buffer:?}\""),
+        }
+    }
+
+    /// Read the header.
+    pub fn read_header(&mut self) -> anyhow::Result<()> {
+        match self {
+            Self::V1(reader) => reader.read_header().context("failed to read rgssad header"),
+            Self::V3(reader) => reader.read_header().context("failed to read rgss3a header"),
+        }
+    }
+
+    /// Read an archive file.
+    pub fn read_file(&mut self) -> anyhow::Result<Option<ArchiveFile<R>>> {
+        match self {
+            Self::V1(reader) => reader
+                .read_file()
+                .map(|file| file.map(ArchiveFile::V1))
+                .context("failed to read rgssad file"),
+            Self::V3(reader) => reader
+                .read_file()
+                .map(|file| file.map(ArchiveFile::V3))
+                .context("failed to read rgss3a file"),
+        }
+    }
+}
+
+#[derive(Debug)]
+enum ArchiveFile<'a, R> {
+    V1(rgssad::File<'a, R>),
+    V3(rgssad::File3<'a, R>),
+}
+
+impl<R> ArchiveFile<'_, R> {
+    /// The file path
+    pub fn name(&self) -> &str {
+        match self {
+            Self::V1(file) => file.name(),
+            Self::V3(file) => file.name(),
+        }
+    }
+}
+
+impl<R> Read for ArchiveFile<'_, R>
+where
+    R: Read + Seek,
+{
+    fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+        match self {
+            Self::V1(file) => file.read(buffer),
+            Self::V3(file) => file.read(buffer),
+        }
+    }
 }

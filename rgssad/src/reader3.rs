@@ -60,7 +60,7 @@ where
     }
 
     /// Read the next file from this archive.
-    pub fn read_file(&mut self) -> Result<Option<File<R>>, Error> {
+    pub fn read_file(&mut self) -> Result<Option<File3<R>>, Error> {
         loop {
             match self.state_machine.step_read_file_header()? {
                 ReaderAction3::Read(size) => {
@@ -78,7 +78,7 @@ where
                         None => return Ok(None),
                     };
 
-                    return Ok(Some(File {
+                    return Ok(Some(File3 {
                         reader: &mut self.reader,
                         state_machine: &mut self.state_machine,
 
@@ -90,16 +90,16 @@ where
     }
 }
 
-/// A file
+/// A file for a version 3 archive
 #[derive(Debug)]
-pub struct File<'a, R> {
+pub struct File3<'a, R> {
     reader: &'a mut R,
     state_machine: &'a mut crate::sans_io::Reader3,
 
     header: FileHeader3,
 }
 
-impl<R> File<'_, R> {
+impl<R> File3<'_, R> {
     /// The file path
     pub fn name(&self) -> &str {
         self.header.name.as_str()
@@ -116,7 +116,7 @@ impl<R> File<'_, R> {
     }
 }
 
-impl<R> Read for File<'_, R>
+impl<R> Read for File3<'_, R>
 where
     R: Read + Seek,
 {

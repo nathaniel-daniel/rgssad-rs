@@ -12,7 +12,9 @@ pub mod tokio;
 /// The archive writer.
 pub mod writer;
 
+pub use self::reader::File;
 pub use self::reader::Reader;
+pub use self::reader3::File3;
 pub use self::reader3::Reader3;
 #[cfg(feature = "tokio")]
 pub use self::tokio::TokioReader;
