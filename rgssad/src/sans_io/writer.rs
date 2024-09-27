@@ -54,7 +54,7 @@ impl Writer {
 
     /// Step the state machine, performing the action of writing the header.
     ///
-    /// If the header has already been written, `Ok(Writer::Done(()))` is returned and no work is performed.
+    /// If the header has already been written, `Ok(WriterAction::Done(()))` is returned and no work is performed.
     /// Calling this method is optional.
     /// The state machine will automatically write the header is if has not been written.
     pub fn step_write_header(&mut self) -> Result<WriterAction<()>, Error> {

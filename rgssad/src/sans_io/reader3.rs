@@ -3,19 +3,16 @@ use super::FileHeader3;
 use super::ReaderAction3;
 use crate::crypt_file_data;
 use crate::crypt_name_bytes3;
-use crate::KEY_LEN;
+use crate::HEADER_LEN3;
+use crate::HEADER_LEN3_USIZE;
 use crate::KEY_LEN_USIZE;
 use crate::MAGIC;
-use crate::MAGIC_LEN;
 use crate::MAGIC_LEN_USIZE;
 use crate::U32_LEN;
 use crate::VERSION3;
-use crate::VERSION_LEN;
 use crate::VERSION_LEN_USIZE;
 
 const DEFAULT_BUFFER_CAPACITY: usize = 10 * 1024;
-const HEADER_LEN3: u8 = MAGIC_LEN + VERSION_LEN + KEY_LEN;
-const HEADER_LEN3_USIZE: usize = HEADER_LEN3 as usize;
 const HEADER_LEN3_U64: u64 = HEADER_LEN3 as u64;
 
 /// A sans-io reader state machine.
@@ -103,6 +100,7 @@ impl Reader3 {
         if version != VERSION3 {
             return Err(Error::InvalidVersion { version });
         }
+
         let (key, _data) = data.split_first_chunk::<KEY_LEN_USIZE>().unwrap();
         let mut key = u32::from_le_bytes(*key);
         key = key.overflowing_mul(9).0.overflowing_add(3).0;

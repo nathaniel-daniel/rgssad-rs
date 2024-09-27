@@ -3,33 +3,26 @@ use crate::Error;
 use std::io::Read;
 use std::io::Write;
 
-#[derive(Debug)]
-enum State {
-    FileHeader,
-    FileData { size: usize },
-    Flush,
-}
-
 /// The archive writer.
 #[derive(Debug)]
 pub struct Writer<W> {
     /// The inner writer.
     writer: W,
 
-    /// The current state
-    state: State,
-
     /// The state machine
     state_machine: crate::sans_io::Writer,
+
+    /// The current state
+    state: State,
 }
 
 impl<W> Writer<W> {
     /// Create an archive writer around a writer.
-    pub fn new(writer: W) -> Writer<W> {
-        Writer {
+    pub fn new(writer: W) -> Self {
+        Self {
             writer,
-            state: State::FileHeader,
             state_machine: crate::sans_io::Writer::new(),
+            state: State::FileHeader,
         }
     }
 
@@ -71,7 +64,6 @@ where
                         self.state_machine.consume(n);
                     }
 
-                    self.state = State::FileHeader;
                     return Ok(());
                 }
             }
@@ -175,4 +167,11 @@ where
         self.writer.flush()?;
         Ok(())
     }
+}
+
+#[derive(Debug)]
+enum State {
+    FileHeader,
+    FileData { size: usize },
+    Flush,
 }

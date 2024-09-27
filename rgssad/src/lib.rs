@@ -11,6 +11,8 @@ pub mod sans_io;
 pub mod tokio;
 /// The archive writer.
 pub mod writer;
+/// The archive writer for a vx ace game.
+pub mod writer3;
 
 pub use self::reader::File;
 pub use self::reader::Reader;
@@ -21,6 +23,7 @@ pub use self::tokio::TokioReader;
 #[cfg(feature = "tokio")]
 pub use self::tokio::TokioWriter;
 pub use self::writer::Writer;
+pub use self::writer3::Writer3;
 
 /// The len of the magic number.
 const MAGIC_LEN: u8 = 7;
@@ -54,6 +57,10 @@ const VERSION3: u8 = 3;
 const KEY_LEN: u8 = 4;
 /// The length of a key in bytes, as a usize.
 const KEY_LEN_USIZE: usize = KEY_LEN as usize;
+/// The size of the header for version 3 archives.
+const HEADER_LEN3: u8 = MAGIC_LEN + VERSION_LEN + KEY_LEN;
+/// The size of the header for version 3 archives, as a usize.
+const HEADER_LEN3_USIZE: usize = HEADER_LEN3 as usize;
 
 /// The library error type
 #[derive(Debug)]
@@ -455,12 +462,12 @@ mod test {
             files.push((file.name().to_string(), buffer));
         }
 
-        /*
         // Write all files into a new archive.
         let mut new_file = Vec::new();
-        let mut writer = Writer::new(&mut new_file);
+        let mut writer = Writer3::new(&mut new_file, reader.key().expect("missing key"));
         writer.write_header().expect("failed to write header");
         for (file_name, file_data) in files.iter() {
+            /*
             writer
                 .write_file(
                     file_name,
@@ -468,11 +475,14 @@ mod test {
                     &**file_data,
                 )
                 .expect("failed to write file");
+                */
         }
         writer.finish().expect("failed to flush");
 
-        let file = reader.into_inner();
+        // let file = reader.into_inner();
+        dbg!(new_file);
 
+        /*
         // Ensure archives are byte-for-byte equivalent.
         assert!(&new_file == file.get_ref());
         */

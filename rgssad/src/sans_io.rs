@@ -6,6 +6,7 @@ mod writer3;
 pub use self::reader::Reader;
 pub use self::reader3::Reader3;
 pub use self::writer::Writer;
+pub use self::writer3::Writer3;
 use crate::MAX_FILE_NAME_LEN;
 
 /// An error that may occur while using sans-io state machines.
@@ -160,6 +161,16 @@ impl<T> WriterAction<T> {
             Self::Done(v) => WriterAction::Done(f(v)),
         }
     }
+}
+
+/// An action that should be performed for the writer state machine, or a result.
+#[derive(Debug, Copy, Clone)]
+pub enum WriterAction3<T> {
+    /// The writer buffer should be emptied.
+    Write,
+
+    /// The stepping function is done.
+    Done(T),
 }
 
 /// A file header

@@ -189,7 +189,7 @@ mod test {
         }
 
         assert!(files.len() == num_skipped_entries);
-        
+
         let key = reader.key().expect("missing key");
         assert!(key == 0x694E);
     }
