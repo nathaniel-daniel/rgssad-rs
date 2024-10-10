@@ -1,12 +1,14 @@
 # rgssad-rs
-A Rust library for reading and writing RPGMaker XP and RPGMaker VX archives from Rust.
-This currently includes support for "rgssad" and "rgss2a" files.
+A Rust library for reading and writing RPGMaker XP, VX, and VX ACE archives from Rust.
+This currently includes complete support for "rgssad", "rgss2a" files and
+partial support for "rgss3a" files.
 
-
-Note that there is currently no support for RPGMaker VX Ace "rgss3a" files.
-Through superficially similar, the internal structure of the file format is very different from prior versions.
-Allowing these files to be parsed with the same interface would greatly increase code complexity.
-In the future, support for these files may be added via another `Rgss3aReader` type.
+## Limitations
+Currently, the entire format of an "rgss3a" file is not known.
+After the last file header with a 0 offset, there are 12 bytes of unknown purpose.
+It is possible that it's just garbage data, but these bytes may have an unknown purpose like a checksum.
+This means that files cannot be round tripped while remaining byte-for-byte compatible.
+In practice, written files seem to work fine.
 
 ## Example
 ```rust
@@ -36,7 +38,7 @@ fn main() {
     writer.write_header().expect("failed to write header");
     for (file_name, file_data) in files.iter() {
         writer
-            .write_entry(
+            .write_file(
                 file_name,
                 u32::try_from(file_data.len()).expect("file data too large"),
                 &**file_data,

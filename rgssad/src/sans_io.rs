@@ -173,6 +173,24 @@ pub enum WriterAction3<T> {
     Done(T),
 }
 
+impl<T> WriterAction3<T> {
+    /// Returns true if this is a `Done` variant.
+    pub fn is_done(&self) -> bool {
+        matches!(self, Self::Done(_))
+    }
+
+    /// Map the done variant.
+    fn map_done<F, O>(self, f: F) -> WriterAction3<O>
+    where
+        F: FnOnce(T) -> O,
+    {
+        match self {
+            Self::Write => WriterAction3::Write,
+            Self::Done(v) => WriterAction3::Done(f(v)),
+        }
+    }
+}
+
 /// A file header
 #[derive(Debug)]
 pub struct FileHeader {

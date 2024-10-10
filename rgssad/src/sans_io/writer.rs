@@ -7,7 +7,7 @@ use crate::DEFAULT_KEY;
 use crate::HEADER_LEN;
 use crate::MAGIC;
 use crate::MAGIC_LEN_USIZE;
-use crate::MAX_FILE_NAME_LEN;
+use crate::MAX_FILE_NAME_LEN_USIZE;
 use crate::U32_LEN;
 use crate::VERSION;
 
@@ -110,7 +110,7 @@ impl Writer {
         }
 
         let name_len = name.len();
-        if name_len > usize::try_from(MAX_FILE_NAME_LEN).unwrap() {
+        if name_len > MAX_FILE_NAME_LEN_USIZE {
             return Err(Error::FileNameTooLongUsize { len: name_len });
         }
         // We check the name size above.

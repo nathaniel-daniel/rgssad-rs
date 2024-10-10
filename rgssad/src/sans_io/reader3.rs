@@ -150,7 +150,7 @@ impl Reader3 {
         let data = self.buffer.data();
 
         let data_len = data.len();
-        let mut expected_size = U32_LEN;
+        let mut expected_size = 4 * U32_LEN;
         if data_len < expected_size {
             return Ok(ReaderAction3::Read(expected_size - data_len));
         }
@@ -158,21 +158,6 @@ impl Reader3 {
         let (offset, data) = data.split_first_chunk::<U32_LEN>().unwrap();
         let mut offset = u32::from_le_bytes(*offset);
         offset ^= key;
-
-        if offset == 0 {
-            let expected_size_u64 =
-                u64::try_from(expected_size).expect("expected_size cannot fit in a `u64`");
-            self.buffer.consume(expected_size);
-            self.position += expected_size_u64;
-
-            self.next_file_header_position = None;
-            return Ok(ReaderAction3::Done(None));
-        }
-
-        expected_size += 3 * U32_LEN;
-        if data_len < expected_size {
-            return Ok(ReaderAction3::Read(expected_size - data_len));
-        }
 
         let (size, data) = data.split_first_chunk::<U32_LEN>().unwrap();
         let mut size = u32::from_le_bytes(*size);
@@ -185,8 +170,18 @@ impl Reader3 {
         let (name_len, data) = data.split_first_chunk::<U32_LEN>().unwrap();
         let mut name_len = u32::from_le_bytes(*name_len);
         name_len ^= key;
-        let name_len_usize = usize::try_from(name_len).expect("name size cannot fit in a `usize`");
 
+        if offset == 0 {
+            let expected_size_u64 =
+                u64::try_from(expected_size).expect("expected_size cannot fit in a `u64`");
+            self.buffer.consume(expected_size);
+            self.position += expected_size_u64;
+
+            self.next_file_header_position = None;
+            return Ok(ReaderAction3::Done(None));
+        }
+
+        let name_len_usize = usize::try_from(name_len).expect("name size cannot fit in a `usize`");
         expected_size += name_len_usize;
         if data_len < expected_size {
             return Ok(ReaderAction3::Read(expected_size - data_len));

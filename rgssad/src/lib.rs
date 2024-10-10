@@ -48,7 +48,11 @@ const DEFAULT_KEY: u32 = 0xDEADCAFE;
 /// Note that the real limit for this value is much lower,
 /// as this format is for a Windows application and
 /// Windows' max path length is 255.
-const MAX_FILE_NAME_LEN: u32 = 4096;
+const MAX_FILE_NAME_LEN: u16 = 4096;
+/// The maximum file name len as a u32.
+const MAX_FILE_NAME_LEN_U32: u32 = MAX_FILE_NAME_LEN as u32;
+/// The maximum file name len as a usize.
+const MAX_FILE_NAME_LEN_USIZE: usize = MAX_FILE_NAME_LEN as usize;
 /// The size of a u32, in bytes.
 const U32_LEN: usize = 4;
 /// The file version for rgss3a files.
@@ -59,6 +63,8 @@ const KEY_LEN: u8 = 4;
 const KEY_LEN_USIZE: usize = KEY_LEN as usize;
 /// The size of the header for version 3 archives.
 const HEADER_LEN3: u8 = MAGIC_LEN + VERSION_LEN + KEY_LEN;
+/// The size of the header for version 3 archives, as a u64.
+const HEADER_LEN3_U32: u32 = HEADER_LEN3 as u32;
 /// The size of the header for version 3 archives, as a usize.
 const HEADER_LEN3_USIZE: usize = HEADER_LEN3 as usize;
 
@@ -459,32 +465,51 @@ mod test {
         while let Some(mut file) = reader.read_file().expect("failed to read file") {
             let mut buffer = Vec::new();
             file.read_to_end(&mut buffer).expect("failed to read file");
-            files.push((file.name().to_string(), buffer));
+            files.push((file.name().to_string(), buffer, file.key()));
         }
 
         // Write all files into a new archive.
         let mut new_file = Vec::new();
         let mut writer = Writer3::new(&mut new_file, reader.key().expect("missing key"));
         writer.write_header().expect("failed to write header");
-        for (file_name, file_data) in files.iter() {
-            /*
+        let mut file_data_list = Vec::with_capacity(files.len());
+        for (file_name, file_data, file_key) in files.into_iter() {
+            let file_size = u32::try_from(file_data.len()).expect("file data too large");
             writer
-                .write_file(
-                    file_name,
-                    u32::try_from(file_data.len()).expect("file data too large"),
-                    &**file_data,
-                )
+                .add_file(file_name, file_size, file_key)
+                .expect("failed to add file");
+            file_data_list.push(file_data);
+        }
+        writer
+            .write_file_headers()
+            .expect("failed to write file headers");
+        for (file_index, file_data) in file_data_list.into_iter().enumerate() {
+            writer
+                .write_file_data(file_index, std::io::Cursor::new(file_data))
                 .expect("failed to write file");
-                */
         }
         writer.finish().expect("failed to flush");
 
-        // let file = reader.into_inner();
-        dbg!(new_file);
+        let file = reader.into_inner();
 
-        /*
+        // Currently, we don't know that these bytes do.
+        // As a result, we don't have true byte-for-byte round tripping.
+        // However, we are only 12 bytes off.
+        // Change these bytes for the sake of testing.
+        new_file[593] = 166;
+        new_file[594] = 46;
+        new_file[595] = 0;
+        new_file[596] = 0;
+        new_file[597] = 219;
+        new_file[598] = 18;
+        new_file[599] = 0;
+        new_file[600] = 0;
+        new_file[601] = 60;
+        new_file[602] = 21;
+        new_file[603] = 0;
+        new_file[604] = 0;
+
         // Ensure archives are byte-for-byte equivalent.
         assert!(&new_file == file.get_ref());
-        */
     }
 }

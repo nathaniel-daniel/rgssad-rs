@@ -8,7 +8,7 @@ use crate::DEFAULT_KEY;
 use crate::HEADER_LEN;
 use crate::MAGIC;
 use crate::MAGIC_LEN_USIZE;
-use crate::MAX_FILE_NAME_LEN;
+use crate::MAX_FILE_NAME_LEN_U32;
 use crate::U32_LEN;
 use crate::VERSION;
 
@@ -153,7 +153,7 @@ impl Reader {
             let bytes = data[..U32_LEN].try_into().unwrap();
             let n = u32::from_le_bytes(bytes);
             let n = crypt_u32(&mut key, n);
-            if n > MAX_FILE_NAME_LEN {
+            if n > MAX_FILE_NAME_LEN_U32 {
                 return Err(Error::FileNameTooLongU32 { len: n });
             }
 
