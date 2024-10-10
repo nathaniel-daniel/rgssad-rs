@@ -6,8 +6,8 @@ use crate::crypt_u32;
 use crate::DEFAULT_KEY;
 use crate::HEADER_LEN;
 use crate::MAGIC;
-use crate::MAGIC_LEN;
-use crate::MAX_FILE_NAME_LEN;
+use crate::MAGIC_LEN_USIZE;
+use crate::MAX_FILE_NAME_LEN_USIZE;
 use crate::U32_LEN;
 use crate::VERSION;
 
@@ -54,7 +54,7 @@ impl Writer {
 
     /// Step the state machine, performing the action of writing the header.
     ///
-    /// If the header has already been written, `Ok(Writer::Done(()))` is returned and no work is performed.
+    /// If the header has already been written, `Ok(WriterAction::Done(()))` is returned and no work is performed.
     /// Calling this method is optional.
     /// The state machine will automatically write the header is if has not been written.
     pub fn step_write_header(&mut self) -> Result<WriterAction<()>, Error> {
@@ -70,8 +70,8 @@ impl Writer {
             return Ok(WriterAction::Write);
         }
 
-        space[..MAGIC_LEN].copy_from_slice(&MAGIC);
-        space[MAGIC_LEN] = VERSION;
+        space[..MAGIC_LEN_USIZE].copy_from_slice(&MAGIC);
+        space[MAGIC_LEN_USIZE] = VERSION;
         self.buffer.fill(HEADER_LEN);
 
         self.state = State::FileHeader;
@@ -110,7 +110,7 @@ impl Writer {
         }
 
         let name_len = name.len();
-        if name_len > usize::try_from(MAX_FILE_NAME_LEN).unwrap() {
+        if name_len > MAX_FILE_NAME_LEN_USIZE {
             return Err(Error::FileNameTooLongUsize { len: name_len });
         }
         // We check the name size above.

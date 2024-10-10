@@ -7,8 +7,8 @@ use crate::crypt_u32;
 use crate::DEFAULT_KEY;
 use crate::HEADER_LEN;
 use crate::MAGIC;
-use crate::MAGIC_LEN;
-use crate::MAX_FILE_NAME_LEN;
+use crate::MAGIC_LEN_USIZE;
+use crate::MAX_FILE_NAME_LEN_U32;
 use crate::U32_LEN;
 use crate::VERSION;
 
@@ -23,7 +23,7 @@ pub struct Reader {
     need_seek: bool,
     position: u64,
     next_file_position: u64,
-    pub(crate) key: u32,
+    key: u32,
 }
 
 impl Reader {
@@ -95,12 +95,12 @@ impl Reader {
         }
 
         // We validate the size above.
-        let magic = *data.first_chunk::<MAGIC_LEN>().unwrap();
+        let magic = *data.first_chunk::<MAGIC_LEN_USIZE>().unwrap();
         if magic != MAGIC {
             return Err(Error::InvalidMagic { magic });
         }
 
-        let version = data[MAGIC_LEN];
+        let version = data[MAGIC_LEN_USIZE];
         if version != VERSION {
             return Err(Error::InvalidVersion { version });
         }
@@ -153,7 +153,7 @@ impl Reader {
             let bytes = data[..U32_LEN].try_into().unwrap();
             let n = u32::from_le_bytes(bytes);
             let n = crypt_u32(&mut key, n);
-            if n > MAX_FILE_NAME_LEN {
+            if n > MAX_FILE_NAME_LEN_U32 {
                 return Err(Error::FileNameTooLongU32 { len: n });
             }
 

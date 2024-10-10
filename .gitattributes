@@ -1,3 +1,6 @@
 *.exe filter=lfs diff=lfs merge=lfs -text
 *.rvdata filter=lfs diff=lfs merge=lfs -text
 *.rgss2a filter=lfs diff=lfs merge=lfs -text
+*.rgss3a filter=lfs diff=lfs merge=lfs -text
+*.dll filter=lfs diff=lfs merge=lfs -text
+*.rvdata2 filter=lfs diff=lfs merge=lfs -text

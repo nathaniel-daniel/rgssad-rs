@@ -1,8 +1,12 @@
 mod reader;
+mod reader3;
 mod writer;
+mod writer3;
 
 pub use self::reader::Reader;
+pub use self::reader3::Reader3;
 pub use self::writer::Writer;
+pub use self::writer3::Writer3;
 use crate::MAX_FILE_NAME_LEN;
 
 /// An error that may occur while using sans-io state machines.
@@ -99,6 +103,38 @@ impl<T> ReaderAction<T> {
     }
 }
 
+/// An action that should be performed for the reader state machine, or a result.
+#[derive(Debug, Copy, Clone)]
+pub enum ReaderAction3<T> {
+    /// Read at least the given number of bytes before stepping again.
+    Read(usize),
+
+    /// Seek to the given position before stepping again.
+    Seek(u64),
+
+    /// The stepping function is done.
+    Done(T),
+}
+
+impl<T> ReaderAction3<T> {
+    /// Returns true if this is a `Done` variant.
+    pub fn is_done(&self) -> bool {
+        matches!(self, Self::Done(_))
+    }
+
+    /// Map the done variant.
+    fn map_done<F, O>(self, f: F) -> ReaderAction3<O>
+    where
+        F: FnOnce(T) -> O,
+    {
+        match self {
+            Self::Read(n) => ReaderAction3::Read(n),
+            Self::Seek(p) => ReaderAction3::Seek(p),
+            Self::Done(v) => ReaderAction3::Done(f(v)),
+        }
+    }
+}
+
 /// An action that should be performed for the writer state machine, or a result..
 #[derive(Debug, Copy, Clone)]
 pub enum WriterAction<T> {
@@ -127,6 +163,34 @@ impl<T> WriterAction<T> {
     }
 }
 
+/// An action that should be performed for the writer state machine, or a result.
+#[derive(Debug, Copy, Clone)]
+pub enum WriterAction3<T> {
+    /// The writer buffer should be emptied.
+    Write,
+
+    /// The stepping function is done.
+    Done(T),
+}
+
+impl<T> WriterAction3<T> {
+    /// Returns true if this is a `Done` variant.
+    pub fn is_done(&self) -> bool {
+        matches!(self, Self::Done(_))
+    }
+
+    /// Map the done variant.
+    fn map_done<F, O>(self, f: F) -> WriterAction3<O>
+    where
+        F: FnOnce(T) -> O,
+    {
+        match self {
+            Self::Write => WriterAction3::Write,
+            Self::Done(v) => WriterAction3::Done(f(v)),
+        }
+    }
+}
+
 /// A file header
 #[derive(Debug)]
 pub struct FileHeader {
@@ -135,4 +199,20 @@ pub struct FileHeader {
 
     /// The file data size.
     pub size: u32,
+}
+
+/// A version 3 file header
+#[derive(Debug)]
+pub struct FileHeader3 {
+    /// The file name
+    pub name: String,
+
+    /// The file data size.
+    pub size: u32,
+
+    /// The file key
+    pub key: u32,
+
+    /// The file offset
+    pub offset: u32,
 }

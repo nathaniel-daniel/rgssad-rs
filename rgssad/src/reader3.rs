@@ -1,23 +1,23 @@
-use crate::sans_io::FileHeader;
-use crate::sans_io::ReaderAction;
+use crate::sans_io::FileHeader3;
+use crate::sans_io::ReaderAction3;
 use crate::Error;
 use std::io::Read;
 use std::io::Seek;
 use std::io::SeekFrom;
 
-/// A reader for a "rgssad" archive file
+/// A reader for a "rgss3a" archive file
 #[derive(Debug)]
-pub struct Reader<R> {
+pub struct Reader3<R> {
     reader: R,
-    state_machine: crate::sans_io::Reader,
+    state_machine: crate::sans_io::Reader3,
 }
 
-impl<R> Reader<R> {
-    /// Create a new [`Reader`] with the default encryption key.
-    pub fn new(reader: R) -> Reader<R> {
-        Reader {
+impl<R> Reader3<R> {
+    /// Create a new [`Reader3`] with the default encryption key.
+    pub fn new(reader: R) -> Self {
+        Self {
             reader,
-            state_machine: crate::sans_io::Reader::new(),
+            state_machine: crate::sans_io::Reader3::new(),
         }
     }
 
@@ -35,58 +35,61 @@ impl<R> Reader<R> {
     pub fn get_mut(&mut self) -> &mut R {
         &mut self.reader
     }
+
+    /// Get the key.
+    ///
+    /// # Returns
+    /// This will return `None` if the header has not been read.
+    pub fn key(&self) -> Option<u32> {
+        self.state_machine.key()
+    }
 }
 
-impl<R> Reader<R>
+impl<R> Reader3<R>
 where
     R: Read + Seek,
 {
     /// Read and validate the header.
     ///
-    /// After this returns, call [`Reader::read_file`] to read through files.
+    /// After this returns, call [`Reader3::read_file`] to read through files.
     /// This function is a NOP if the header has already been read.
     pub fn read_header(&mut self) -> Result<(), Error> {
         loop {
             match self.state_machine.step_read_header()? {
-                ReaderAction::Read(size) => {
+                ReaderAction3::Read(size) => {
                     let space = self.state_machine.space();
                     let n = self.reader.read(&mut space[..size])?;
                     self.state_machine.fill(n);
                 }
-                ReaderAction::Done(()) => return Ok(()),
-                ReaderAction::Seek(_) => unreachable!(),
+                ReaderAction3::Done(()) => return Ok(()),
+                ReaderAction3::Seek(_) => unreachable!(),
             }
         }
     }
 
     /// Read the next file from this archive.
-    pub fn read_file(&mut self) -> Result<Option<File<R>>, Error> {
+    pub fn read_file(&mut self) -> Result<Option<File3<R>>, Error> {
         loop {
             match self.state_machine.step_read_file_header()? {
-                ReaderAction::Read(size) => {
+                ReaderAction3::Read(size) => {
                     let space = self.state_machine.space();
                     let n = self.reader.read(&mut space[..size])?;
                     self.state_machine.fill(n);
-
-                    if n == 0 {
-                        if self.state_machine.available_data() == 0 {
-                            return Ok(None);
-                        } else {
-                            return Err(Error::Io(std::io::Error::new(
-                                std::io::ErrorKind::UnexpectedEof,
-                                "failed to fill whole buffer",
-                            )));
-                        }
-                    }
                 }
-                ReaderAction::Seek(position) => {
+                ReaderAction3::Seek(position) => {
                     self.reader.seek(SeekFrom::Start(position))?;
-                    self.state_machine.finish_seek();
+                    self.state_machine.finish_seek(position);
                 }
-                ReaderAction::Done(file_header) => {
-                    return Ok(Some(File {
-                        state_machine: &mut self.state_machine,
+                ReaderAction3::Done(file_header) => {
+                    let file_header = match file_header {
+                        Some(file_header) => file_header,
+                        None => return Ok(None),
+                    };
+
+                    return Ok(Some(File3 {
                         reader: &mut self.reader,
+                        state_machine: &mut self.state_machine,
+
                         header: file_header,
                     }));
                 }
@@ -95,16 +98,16 @@ where
     }
 }
 
-/// An file in an rgssad file
+/// A file for a version 3 archive
 #[derive(Debug)]
-pub struct File<'a, R> {
+pub struct File3<'a, R> {
     reader: &'a mut R,
-    state_machine: &'a mut crate::sans_io::Reader,
+    state_machine: &'a mut crate::sans_io::Reader3,
 
-    header: FileHeader,
+    header: FileHeader3,
 }
 
-impl<R> File<'_, R> {
+impl<R> File3<'_, R> {
     /// The file path
     pub fn name(&self) -> &str {
         self.header.name.as_str()
@@ -114,21 +117,26 @@ impl<R> File<'_, R> {
     pub fn size(&self) -> u32 {
         self.header.size
     }
+
+    /// The file key
+    pub fn key(&self) -> u32 {
+        self.header.key
+    }
 }
 
-impl<R> Read for File<'_, R>
+impl<R> Read for File3<'_, R>
 where
-    R: Read,
+    R: Read + Seek,
 {
     fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
         loop {
             let action = self
                 .state_machine
-                .step_read_file_data(buffer)
+                .step_read_file_data(&self.header, buffer)
                 .map_err(|error| std::io::Error::new(std::io::ErrorKind::Other, error))?;
 
             match action {
-                ReaderAction::Read(size) => {
+                ReaderAction3::Read(size) => {
                     let space = self.state_machine.space();
 
                     // Even if we read shorter than requested,
@@ -137,8 +145,11 @@ where
                     let n = self.reader.read(&mut space[..size])?;
                     self.state_machine.fill(n);
                 }
-                ReaderAction::Seek(_) => unreachable!(),
-                ReaderAction::Done(n) => return Ok(n),
+                ReaderAction3::Seek(position) => {
+                    self.reader.seek(SeekFrom::Start(position))?;
+                    self.state_machine.finish_seek(position);
+                }
+                ReaderAction3::Done(n) => return Ok(n),
             }
         }
     }
@@ -150,10 +161,10 @@ mod test {
     use crate::test::*;
 
     #[test]
-    fn reader_smoke() {
-        let file = std::fs::read(VX_TEST_GAME).expect("failed to open archive");
+    fn reader3_smoke() {
+        let file = std::fs::read(VX_ACE_TEST_GAME).expect("failed to open archive");
         let file = std::io::Cursor::new(file);
-        let mut reader = Reader::new(file);
+        let mut reader = Reader3::new(file);
         reader.read_header().expect("failed to read header");
 
         // Ensure skipping works.
@@ -166,7 +177,7 @@ mod test {
         let mut file = reader.into_inner();
         file.seek(SeekFrom::Start(0))
             .expect("failed to seek to start");
-        let mut reader = Reader::new(file);
+        let mut reader = Reader3::new(file);
         reader.read_header().expect("failed to read header");
 
         // Read entire archive into a Vec.
@@ -178,21 +189,8 @@ mod test {
         }
 
         assert!(files.len() == num_skipped_entries);
-    }
 
-    #[test]
-    fn reader_trailing_bytes() {
-        let mut file = std::fs::read(VX_TEST_GAME).expect("failed to open archive");
-        file.push(1);
-        let file = std::io::Cursor::new(file);
-        let mut reader = Reader::new(file);
-        reader.read_header().expect("failed to read header");
-
-        while let Ok(Some(_file)) = reader.read_file() {}
-
-        let error = reader.read_file().expect_err("reader should have errored");
-        assert!(
-            matches!(error, Error::Io(error) if error.kind() == std::io::ErrorKind::UnexpectedEof)
-        );
+        let key = reader.key().expect("missing key");
+        assert!(key == 0x694E);
     }
 }

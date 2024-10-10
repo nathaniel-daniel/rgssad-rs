@@ -1,3 +1,4 @@
+use crate::sans_io::FileHeader;
 use crate::sans_io::ReaderAction;
 use crate::Error;
 use std::pin::Pin;
@@ -81,12 +82,10 @@ where
                     self.state_machine.finish_seek();
                 }
                 ReaderAction::Done(file_header) => {
-                    let size = file_header.size;
                     return Ok(Some(File {
-                        name: file_header.name,
-                        size,
                         reader: &mut self.reader,
                         state_machine: &mut self.state_machine,
+                        header: file_header,
                     }));
                 }
             }
@@ -98,24 +97,23 @@ pin_project_lite::pin_project! {
     /// An archive file
     #[derive(Debug)]
     pub struct File<'a, R> {
-        name: String,
-        size: u32,
-
         #[pin]
         reader: &'a mut R,
         state_machine: &'a mut crate::sans_io::Reader,
+
+        header: FileHeader,
     }
 }
 
 impl<R> File<'_, R> {
     /// Get the file path
     pub fn name(&self) -> &str {
-        self.name.as_str()
+        self.header.name.as_str()
     }
 
     /// Get the file size
     pub fn size(&self) -> u32 {
-        self.size
+        self.header.size
     }
 }
 

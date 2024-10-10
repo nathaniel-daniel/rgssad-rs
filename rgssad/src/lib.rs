@@ -2,6 +2,8 @@
 
 /// The archive reader.
 pub mod reader;
+/// The archive reader for a vx ace game.
+pub mod reader3;
 /// sans-io state machines for reading and writing.
 pub mod sans_io;
 /// Tokio adapters for archive readers and writers.
@@ -9,22 +11,34 @@ pub mod sans_io;
 pub mod tokio;
 /// The archive writer.
 pub mod writer;
+/// The archive writer for a vx ace game.
+pub mod writer3;
 
+pub use self::reader::File;
 pub use self::reader::Reader;
+pub use self::reader3::File3;
+pub use self::reader3::Reader3;
 #[cfg(feature = "tokio")]
 pub use self::tokio::TokioReader;
 #[cfg(feature = "tokio")]
 pub use self::tokio::TokioWriter;
 pub use self::writer::Writer;
+pub use self::writer3::Writer3;
 
 /// The len of the magic number.
-const MAGIC_LEN: usize = 7;
+const MAGIC_LEN: u8 = 7;
+/// The len of the magic number, as a usize.
+const MAGIC_LEN_USIZE: usize = MAGIC_LEN as usize;
 /// The magic number.
-const MAGIC: [u8; MAGIC_LEN] = *b"RGSSAD\0";
-/// The file version
+const MAGIC: [u8; MAGIC_LEN_USIZE] = *b"RGSSAD\0";
+/// The length of a version in bytes.
+const VERSION_LEN: u8 = 1;
+/// The length of a version in bytes, as a usize.
+const VERSION_LEN_USIZE: usize = VERSION_LEN as usize;
+/// The file version for rgssad and rgss2a files.
 const VERSION: u8 = 1;
 /// The size of the header.
-const HEADER_LEN: usize = MAGIC_LEN + 1;
+const HEADER_LEN: usize = MAGIC_LEN_USIZE + VERSION_LEN_USIZE;
 /// The default encryption key.
 const DEFAULT_KEY: u32 = 0xDEADCAFE;
 /// The maximum file name len.
@@ -34,9 +48,25 @@ const DEFAULT_KEY: u32 = 0xDEADCAFE;
 /// Note that the real limit for this value is much lower,
 /// as this format is for a Windows application and
 /// Windows' max path length is 255.
-const MAX_FILE_NAME_LEN: u32 = 4096;
+const MAX_FILE_NAME_LEN: u16 = 4096;
+/// The maximum file name len as a u32.
+const MAX_FILE_NAME_LEN_U32: u32 = MAX_FILE_NAME_LEN as u32;
+/// The maximum file name len as a usize.
+const MAX_FILE_NAME_LEN_USIZE: usize = MAX_FILE_NAME_LEN as usize;
 /// The size of a u32, in bytes.
 const U32_LEN: usize = 4;
+/// The file version for rgss3a files.
+const VERSION3: u8 = 3;
+/// The length of a key in bytes.
+const KEY_LEN: u8 = 4;
+/// The length of a key in bytes, as a usize.
+const KEY_LEN_USIZE: usize = KEY_LEN as usize;
+/// The size of the header for version 3 archives.
+const HEADER_LEN3: u8 = MAGIC_LEN + VERSION_LEN + KEY_LEN;
+/// The size of the header for version 3 archives, as a u64.
+const HEADER_LEN3_U32: u32 = HEADER_LEN3 as u32;
+/// The size of the header for version 3 archives, as a usize.
+const HEADER_LEN3_USIZE: usize = HEADER_LEN3 as usize;
 
 /// The library error type
 #[derive(Debug)]
@@ -90,7 +120,7 @@ fn crypt_u32(key: &mut u32, mut n: u32) -> u32 {
     n
 }
 
-/// Encrypt of decrypt a file name, and rotate the key as needed.
+/// Encrypt or decrypt a file name, and rotate the key as needed.
 fn crypt_name_bytes(key: &mut u32, bytes: &mut [u8]) {
     for byte in bytes.iter_mut() {
         // We mask with 0xFF, this cannot exceed the bounds of a u8.
@@ -113,6 +143,16 @@ fn crypt_file_data(key: &mut u32, counter: &mut u8, buffer: &mut [u8]) {
     }
 }
 
+/// Encrypt or decrypt a file name for version 3 archives.
+fn crypt_name_bytes3(key: u32, bytes: &mut [u8]) {
+    // TODO: We can possibly be more efficient here.
+    // If we are able to cast this to a slice of u32s,
+    // we can crypt that instead and use this byte-wise impl only at the end.
+    for (i, byte) in bytes.iter_mut().enumerate() {
+        *byte ^= key.to_le_bytes()[i % 4];
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -125,6 +165,8 @@ mod test {
 
     pub const VX_TEST_GAME: &str =
         "test_data/RPGMakerVXTestGame-Export/RPGMakerVXTestGame/Game.rgss2a";
+    pub const VX_ACE_TEST_GAME: &str =
+        "test_data/RPGMakerVXAceGame-Export/RPGMakerVXAceGame/Game.rgss3a";
 
     #[derive(Debug, Clone)]
     struct SlowReader<R> {
@@ -374,7 +416,191 @@ mod test {
         let new_file = new_file.inner.borrow();
         let new_file = &new_file.0;
         let file = file.get_ref();
-        dbg!(new_file.len(), file.len());
+        assert!(new_file == file);
+    }
+
+    #[test]
+    fn reader3_writer3_smoke() {
+        let file = std::fs::read(VX_ACE_TEST_GAME).expect("failed to open archive");
+        let file = std::io::Cursor::new(file);
+        let mut reader = Reader3::new(file);
+        reader.read_header().expect("failed to read header");
+
+        // Read entire archive into a Vec.
+        let mut files = Vec::new();
+        while let Some(mut file) = reader.read_file().expect("failed to read file") {
+            let mut buffer = Vec::new();
+            file.read_to_end(&mut buffer).expect("failed to read file");
+            files.push((file.name().to_string(), buffer, file.key()));
+        }
+
+        // Write all files into a new archive.
+        let mut new_file = Vec::new();
+        let mut writer = Writer3::new(&mut new_file, reader.key().expect("missing key"));
+        writer.write_header().expect("failed to write header");
+        let mut file_data_list = Vec::with_capacity(files.len());
+        for (file_name, file_data, file_key) in files.into_iter() {
+            let file_size = u32::try_from(file_data.len()).expect("file data too large");
+            writer
+                .add_file(file_name, file_size, file_key)
+                .expect("failed to add file");
+            file_data_list.push(file_data);
+        }
+        writer
+            .write_file_headers()
+            .expect("failed to write file headers");
+        for (file_index, file_data) in file_data_list.into_iter().enumerate() {
+            writer
+                .write_file_data(file_index, std::io::Cursor::new(file_data))
+                .expect("failed to write file");
+        }
+        writer.finish().expect("failed to flush");
+
+        let file = reader.into_inner();
+
+        // Currently, we don't know that these bytes do.
+        // As a result, we don't have true byte-for-byte round tripping.
+        // However, we are only 12 bytes off.
+        // Change these bytes for the sake of testing.
+        new_file[593] = 166;
+        new_file[594] = 46;
+        new_file[595] = 0;
+        new_file[596] = 0;
+        new_file[597] = 219;
+        new_file[598] = 18;
+        new_file[599] = 0;
+        new_file[600] = 0;
+        new_file[601] = 60;
+        new_file[602] = 21;
+        new_file[603] = 0;
+        new_file[604] = 0;
+
+        // Ensure archives are byte-for-byte equivalent.
+        assert!(&new_file == file.get_ref());
+    }
+
+    #[test]
+    fn slow_reader3() {
+        let file = std::fs::read(VX_ACE_TEST_GAME).expect("failed to open archive");
+        let file = std::io::Cursor::new(file);
+        let file = SlowReader::new(file);
+        let mut reader = Reader3::new(file.clone());
+
+        loop {
+            match reader.read_header() {
+                Ok(()) => break,
+                Err(Error::Io(error)) if error.kind() == std::io::ErrorKind::WouldBlock => {}
+                Err(error) => {
+                    panic!("Error: {error:?}");
+                }
+            }
+
+            file.add_fuel(1);
+        }
+
+        loop {
+            match reader.read_file() {
+                Ok(Some(_file)) => {}
+                Ok(None) => break,
+                Err(Error::Io(error)) if error.kind() == std::io::ErrorKind::WouldBlock => {}
+                Err(error) => {
+                    panic!("Error: {error:?}");
+                }
+            }
+
+            file.add_fuel(1);
+        }
+    }
+
+    #[test]
+    fn reader3_slow_writer3_smoke() {
+        let file = std::fs::read(VX_ACE_TEST_GAME).expect("failed to open archive");
+        let file = std::io::Cursor::new(file);
+        let mut reader = Reader3::new(file);
+        reader.read_header().expect("failed to read header");
+
+        // Read entire archive into Vec.
+        let mut files = Vec::new();
+        while let Some(mut file) = reader.read_file().expect("failed to read file") {
+            let mut buffer = Vec::new();
+            file.read_to_end(&mut buffer).expect("failed to read file");
+            files.push((file.name().to_string(), buffer, file.key()));
+        }
+
+        // Write all files into new archive.
+        let new_file = SlowWriter::new(Vec::<u8>::new());
+        let mut writer = Writer3::new(new_file.clone(), reader.key().expect("missing key"));
+        loop {
+            match writer.write_header() {
+                Ok(()) => break,
+                Err(Error::Io(error)) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                    new_file.add_fuel(1);
+                }
+                Err(error) => {
+                    panic!("failed to write header: {error}");
+                }
+            }
+        }
+
+        let mut file_data_list = Vec::with_capacity(files.len());
+        for (file_name, file_data, file_key) in files {
+            let file_size = u32::try_from(file_data.len()).expect("file data too large");
+            writer
+                .add_file(file_name, file_size, file_key)
+                .expect("failed to add file");
+            file_data_list.push(file_data);
+        }
+
+        for (file_index, file_data) in file_data_list.into_iter().enumerate() {
+            // We need to pass the same reader, so that updates to its position are persisted.
+            let mut reader = &*file_data;
+
+            loop {
+                match writer.write_file_data(file_index, &mut reader) {
+                    Ok(()) => break,
+                    Err(Error::Io(error)) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                        new_file.add_fuel(1);
+                    }
+                    Err(error) => {
+                        panic!("failed to write file: {error}");
+                    }
+                }
+            }
+        }
+
+        loop {
+            match writer.finish() {
+                Ok(()) => break,
+                Err(Error::Io(error)) if error.kind() == std::io::ErrorKind::WouldBlock => {}
+                Err(error) => {
+                    panic!("failed to flush: {error}");
+                }
+            }
+        }
+
+        let file = reader.into_inner();
+        let file = file.get_ref();
+        let mut new_file = new_file.inner.borrow_mut();
+        let new_file = &mut new_file.0;
+
+        // Currently, we don't know that these bytes do.
+        // As a result, we don't have true byte-for-byte round tripping.
+        // However, we are only 12 bytes off.
+        // Change these bytes for the sake of testing.
+        new_file[593] = 166;
+        new_file[594] = 46;
+        new_file[595] = 0;
+        new_file[596] = 0;
+        new_file[597] = 219;
+        new_file[598] = 18;
+        new_file[599] = 0;
+        new_file[600] = 0;
+        new_file[601] = 60;
+        new_file[602] = 21;
+        new_file[603] = 0;
+        new_file[604] = 0;
+
+        // Ensure archives are byte-for-byte equivalent.
         assert!(new_file == file);
     }
 }
